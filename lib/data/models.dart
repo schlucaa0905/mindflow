@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:ui' show Size;
+import 'dart:ui' show Rect, Size;
 
 import 'package:sqlite3/sqlite3.dart';
 
@@ -153,6 +153,58 @@ class MfObject {
 
 DateTime _date(int ms) => DateTime.fromMillisecondsSinceEpoch(ms);
 
+/// Aussehen einer Canvas-Karte.
+enum CardKind {
+  card('Karte', 'Abgerundete Karte'),
+  sticky('Notizzettel', 'Quadratischer Klebezettel'),
+  heading('Überschrift', 'Großer Titel ohne Hintergrund'),
+  pill('Kapsel', 'Kurzer Begriff, rund'),
+  circle('Kreis', 'Zentrales Thema einer Mindmap');
+
+  const CardKind(this.label, this.hint);
+  final String label;
+  final String hint;
+}
+
+/// Schriftgröße auf Karten.
+enum CardTextSize {
+  small('S', 13),
+  medium('M', 16),
+  large('L', 22),
+  huge('XL', 30);
+
+  const CardTextSize(this.label, this.size);
+  final String label;
+  final double size;
+}
+
+/// Pfeilspitzen einer Verbindung.
+enum EdgeArrow {
+  none('Ohne Pfeil'),
+  end('Pfeil am Ende'),
+  both('Pfeile an beiden Enden');
+
+  const EdgeArrow(this.label);
+  final String label;
+}
+
+Map<String, dynamic> _json(Object? raw) {
+  if (raw is! String || raw.isEmpty) return {};
+  try {
+    final v = jsonDecode(raw);
+    return v is Map ? v.cast<String, dynamic>() : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+T _enum<T extends Enum>(List<T> values, Object? name, T fallback) {
+  for (final v in values) {
+    if (v.name == name) return v;
+  }
+  return fallback;
+}
+
 /// Eine Karte auf der Canvas-Fläche.
 class CanvasNode {
   CanvasNode({
@@ -165,7 +217,8 @@ class CanvasNode {
     required this.text,
     this.color,
     this.refObjectId,
-  });
+    Map<String, dynamic>? data,
+  }) : data = data ?? {};
 
   factory CanvasNode.fromRow(Row r) => CanvasNode(
         id: r['id'] as String,
@@ -177,6 +230,7 @@ class CanvasNode {
         text: r['text'] as String,
         color: r['color'] as int?,
         refObjectId: r['ref_object_id'] as String?,
+        data: _json(r['data']),
       );
 
   final String id;
@@ -186,8 +240,52 @@ class CanvasNode {
   double w;
   double h;
   String text;
+
+  /// Kartenfarbe (ARGB). null = neutral.
   int? color;
   String? refObjectId;
+
+  /// Gestaltung: Art, Schriftgröße, fett, zentriert, Ebene …
+  final Map<String, dynamic> data;
+
+  CardKind get kind => _enum(CardKind.values, data['kind'], CardKind.card);
+  set kind(CardKind k) => data['kind'] = k.name;
+
+  CardTextSize get textSize => _enum(CardTextSize.values, data['size'],
+      kind == CardKind.heading ? CardTextSize.huge : CardTextSize.medium);
+  set textSize(CardTextSize s) => data['size'] = s.name;
+
+  bool get bold => data['bold'] == true;
+  set bold(bool v) => data['bold'] = v;
+
+  /// null = Standard der Kartenart (Kapsel/Kreis zentriert).
+  bool get centered => data['center'] is bool
+      ? data['center'] as bool
+      : (kind == CardKind.pill || kind == CardKind.circle);
+  set centered(bool v) => data['center'] = v;
+
+  /// Höhe von Hand festgelegt (sonst passt sie sich dem Text an).
+  bool get fixedHeight => data['fixedH'] == true;
+  set fixedHeight(bool v) => data['fixedH'] = v;
+
+  /// Stapel-Reihenfolge (größer = weiter vorne).
+  double get z => (data['z'] as num?)?.toDouble() ?? 0;
+  set z(double v) => data['z'] = v;
+
+  Rect get rect => Rect.fromLTWH(x, y, w, h);
+
+  CanvasNode copy({String? id, double dx = 0, double dy = 0}) => CanvasNode(
+        id: id ?? this.id,
+        boardId: boardId,
+        x: x + dx,
+        y: y + dy,
+        w: w,
+        h: h,
+        text: text,
+        color: color,
+        refObjectId: refObjectId,
+        data: Map<String, dynamic>.of(data),
+      );
 }
 
 /// Eine sichtbare Verbindung zwischen zwei Karten.
@@ -198,7 +296,8 @@ class CanvasEdge {
     required this.fromId,
     required this.toId,
     this.label,
-  });
+    Map<String, dynamic>? data,
+  }) : data = data ?? {};
 
   factory CanvasEdge.fromRow(Row r) => CanvasEdge(
         id: r['id'] as String,
@@ -206,6 +305,7 @@ class CanvasEdge {
         fromId: r['from_node'] as String,
         toId: r['to_node'] as String,
         label: r['label'] as String?,
+        data: _json(r['data']),
       );
 
   final String id;
@@ -213,4 +313,30 @@ class CanvasEdge {
   final String fromId;
   final String toId;
   String? label;
+  final Map<String, dynamic> data;
+
+  EdgeArrow get arrow => _enum(EdgeArrow.values, data['arrow'], EdgeArrow.none);
+  set arrow(EdgeArrow a) => data['arrow'] = a.name;
+
+  bool get dashed => data['dashed'] == true;
+  set dashed(bool v) => data['dashed'] = v;
+
+  /// Linienfarbe (ARGB). null = Akzentfarbe.
+  int? get color => data['color'] is int ? data['color'] as int : null;
+  set color(int? v) {
+    if (v == null) {
+      data.remove('color');
+    } else {
+      data['color'] = v;
+    }
+  }
+
+  CanvasEdge copy({String? id, String? fromId, String? toId}) => CanvasEdge(
+        id: id ?? this.id,
+        boardId: boardId,
+        fromId: fromId ?? this.fromId,
+        toId: toId ?? this.toId,
+        label: label,
+        data: Map<String, dynamic>.of(data),
+      );
 }

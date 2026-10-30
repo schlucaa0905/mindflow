@@ -42,6 +42,12 @@ class AppDatabase {
       }
       raw.userVersion = 2;
     }
+    if (version < 3) {
+      for (final sql in _schemaV3) {
+        raw.execute(sql);
+      }
+      raw.userVersion = 3;
+    }
   }
 
   void dispose() => raw.dispose();
@@ -138,4 +144,11 @@ const _schemaV2 = <String>[
   )
   ''',
   'CREATE INDEX idx_items_owner ON page_items(owner_id)',
+];
+
+/// Version 3: Gestaltung von Canvas-Karten und Verbindungen
+/// (Art, Schriftgröße, Pfeile, gestrichelt …) als JSON.
+const _schemaV3 = <String>[
+  "ALTER TABLE canvas_nodes ADD COLUMN data TEXT NOT NULL DEFAULT '{}'",
+  "ALTER TABLE canvas_edges ADD COLUMN data TEXT NOT NULL DEFAULT '{}'",
 ];

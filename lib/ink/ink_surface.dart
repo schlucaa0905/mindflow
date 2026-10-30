@@ -152,6 +152,25 @@ class InkSurfaceState extends State<InkSurface>
     controller.camera.lookAt(r.center, scale, view);
   }
 
+  /// Ganze Seite ins Bild setzen.
+  void fitPage() {
+    final v = controller.camera.viewport;
+    if (!v.isEmpty) fit(v);
+  }
+
+  /// Seitenbreite füllen, oben am Blatt beginnen.
+  void fitWidth() {
+    final r = widget.fitRect;
+    final v = controller.camera.viewport;
+    if (r == null || v.isEmpty) return;
+    final scale = (v.width - 32) / r.width;
+    final cam = controller.camera;
+    final s = scale.clamp(cam.minZoom, cam.maxZoom).toDouble();
+    final top = r.top - 16 / s;
+    controller.camera.lookAt(
+        Offset(r.center.dx, top + v.height / 2 / s), s, v);
+  }
+
   /// Notizbuch: etwas weiter als "ganze Seite" herauszoomen, dann Schluss.
   void _applyZoomLimits(Size view) {
     final r = widget.fitRect;
@@ -217,6 +236,9 @@ class InkSurfaceState extends State<InkSurface>
       return KeyEventResult.ignored;
     }
     final c = controller;
+    // Zeichnen aus (z. B. Canvas im Auswahlmodus): Tasten gehören der
+    // Seite darüber (Karten rückgängig machen, kopieren …).
+    if (!c.drawingEnabled) return KeyEventResult.ignored;
     final key = event.logicalKey;
     final hw = HardwareKeyboard.instance;
     final ctrl = hw.isControlPressed || hw.isMetaPressed;

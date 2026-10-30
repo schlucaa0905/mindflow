@@ -199,11 +199,22 @@ class _NotebookScreenState extends State<NotebookScreen> {
       title: nb.displayTitle,
       count: _pages.length,
       current: _index,
-      thumbnail: (context, i) => PageThumbnail(
-        inkId: _pages[i].id,
-        page: rect,
-        paper: paper,
-        template: _pages[i].template,
+      thumbnail: (context, i) => Stack(
+        children: [
+          PageThumbnail(
+            inkId: _pages[i].id,
+            page: rect,
+            paper: paper,
+            template: _pages[i].template,
+          ),
+          if (_isBookmarked(_pages[i]))
+            Positioned(
+              top: 0,
+              right: 10,
+              child: Icon(Icons.bookmark_rounded,
+                  size: 26, color: context.mf.accent),
+            ),
+        ],
       ),
       onAdd: () => _addPage(after: _pages.length - 1),
       menuItems: (i) => [
@@ -283,9 +294,69 @@ class _NotebookScreenState extends State<NotebookScreen> {
     }
   }
 
+  bool _isBookmarked(MfObject p) => p.data['bookmark'] == true;
+
+  void _toggleBookmark() {
+    final p = _page;
+    final on = !_isBookmarked(p);
+    _s.objects.setData(p.id, {...p.data, 'bookmark': on});
+    setState(_reload);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        duration: const Duration(seconds: 2),
+        content: Text(on
+            ? 'Lesezeichen auf Seite ${_index + 1} gesetzt'
+            : 'Lesezeichen entfernt')));
+  }
+
+  /// Springt zum nächsten Lesezeichen (danach wieder von vorn).
+  Future<void> _nextBookmark() async {
+    for (var k = 1; k <= _pages.length; k++) {
+      final i = (_index + k) % _pages.length;
+      if (_isBookmarked(_pages[i])) {
+        await _goTo(i);
+        return;
+      }
+    }
+  }
+
+  Future<void> _askGoTo() async {
+    final v = await askText(context,
+        title: 'Zu Seite springen',
+        hint: '1 – ${_pages.length}',
+        confirm: 'Springen');
+    final n = int.tryParse(v?.trim() ?? '');
+    if (n == null || !mounted) return;
+    await _goTo((n - 1).clamp(0, _pages.length - 1).toInt());
+  }
+
+  Future<void> _addPageBefore() async {
+    await _flush();
+    final base = _page;
+    final position = _index == 0
+        ? base.position - 1
+        : _s.objects.positionAfter(_pages[_index - 1]);
+    final page = _s.objects.create(
+      type: ObjectType.page,
+      parentId: widget.notebookId,
+      position: position,
+      data: {'template': _notebook!.template.name},
+    );
+    if (!mounted) return;
+    setState(() {
+      _reload();
+      _index = _pages.indexWhere((p) => p.id == page.id);
+      _enterFrom = -1;
+      _surfaceKey = GlobalKey();
+    });
+  }
+
   Widget _nav(BuildContext context, InkController c) {
     final nb = _notebook!;
+    final bookmarked = _isBookmarked(_page);
+    final anyBookmark = _pages.any(_isBookmarked);
     return EditorNavBar(
+      icon: Icons.menu_book_rounded,
       title: nb.displayTitle,
       subtitle: nb.category.isEmpty ? null : nb.category,
       onTitleTap: _editNotebook,
@@ -297,49 +368,95 @@ class _NotebookScreenState extends State<NotebookScreen> {
         onTap: _showOverview,
       ),
       actions: [
-        NavIconButton(
-          icon: Icons.grid_view_rounded,
-          tooltip: 'Seitenübersicht',
-          onTap: _showOverview,
-        ),
-        const NavDivider(),
-        UndoRedoButtons(controller: c),
-        const NavDivider(),
-        NavIconButton(
-          icon: Icons.note_add_outlined,
-          tooltip: 'Neue Seite dahinter',
-          onTap: () => _addPage(),
-        ),
-        NavIconButton(
-          icon: Icons.co_present_outlined,
-          tooltip: 'Präsentieren (nur das Blatt zeigen)',
-          onTap: () => setState(() => _presenting = true),
-        ),
+        NavGroup(children: [
+          NavIconButton(
+            icon: Icons.grid_view_rounded,
+            tooltip: 'Seitenübersicht',
+            onTap: _showOverview,
+          ),
+          NavIconButton(
+            icon: bookmarked
+                ? Icons.bookmark_rounded
+                : Icons.bookmark_border_rounded,
+            tooltip: bookmarked ? 'Lesezeichen entfernen' : 'Lesezeichen setzen',
+            active: bookmarked,
+            onTap: _toggleBookmark,
+          ),
+        ]),
+        NavGroup(children: [UndoRedoButtons(controller: c)]),
+        NavGroup(children: [
+          ZoomPill(
+            camera: c.camera,
+            onFit: () => _surfaceKey.currentState?.fitPage(),
+            onFitWidth: () => _surfaceKey.currentState?.fitWidth(),
+          ),
+        ]),
+        NavGroup(children: [
+          CleanMenuButton(
+            tooltip: 'Einfügen',
+            icon: Icons.add_circle_outline_rounded,
+            entries: const [
+              CleanMenuEntry('after', 'Neue Seite danach',
+                  icon: Icons.note_add_outlined),
+              CleanMenuEntry('before', 'Neue Seite davor',
+                  icon: Icons.post_add_rounded),
+              CleanMenuEntry('dup', 'Seite duplizieren',
+                  icon: Icons.copy_all_outlined),
+              CleanMenuEntry.divider(),
+              CleanMenuEntry('text', 'Textfeld (Tastatur)',
+                  icon: Icons.title_rounded,
+                  subtitle: 'Dann aufs Blatt tippen'),
+              CleanMenuEntry('tpl', 'Vorlage dieser Seite',
+                  icon: Icons.view_day_outlined),
+            ],
+            onSelected: (v) async {
+              switch (v) {
+                case 'after':
+                  await _addPage();
+                case 'before':
+                  await _addPageBefore();
+                case 'dup':
+                  await _addPage(duplicate: true);
+                case 'text':
+                  c.setTool(ToolMode.text);
+                case 'tpl':
+                  await _chooseTemplate(_page);
+              }
+            },
+          ),
+          StylusToggle(controller: c),
+          NavIconButton(
+            icon: Icons.co_present_outlined,
+            tooltip: 'Präsentieren (nur das Blatt zeigen)',
+            onTap: () => setState(() => _presenting = true),
+          ),
+        ]),
         EditorMoreMenu(
-          entries: const [
-            CleanMenuEntry('settings', 'Aussehen ändern',
+          entries: [
+            const CleanMenuEntry('settings', 'Aussehen ändern',
                 icon: Icons.palette_outlined,
                 subtitle: 'Umschlag, Papier, Format'),
-            CleanMenuEntry.divider(),
-            CleanMenuEntry('dup', 'Seite duplizieren',
-                icon: Icons.copy_all_outlined),
-            CleanMenuEntry('tpl', 'Vorlage dieser Seite',
-                icon: Icons.view_day_outlined),
-            CleanMenuEntry('knowledge', 'Wissenseintrag aus Seite',
+            const CleanMenuEntry.divider(),
+            const CleanMenuEntry('goto', 'Zu Seite springen …',
+                icon: Icons.low_priority_rounded),
+            if (anyBookmark)
+              const CleanMenuEntry('nextmark', 'Nächstes Lesezeichen',
+                  icon: Icons.bookmarks_outlined),
+            const CleanMenuEntry('knowledge', 'Wissenseintrag aus Seite',
                 icon: Icons.hub_outlined),
-            CleanMenuEntry.divider(),
-            CleanMenuEntry('export', 'Als PDF teilen',
+            const CleanMenuEntry.divider(),
+            const CleanMenuEntry('export', 'Als PDF teilen',
                 icon: Icons.ios_share_outlined),
-            CleanMenuEntry.divider(),
-            CleanMenuEntry('del', 'Seite löschen',
+            const CleanMenuEntry.divider(),
+            const CleanMenuEntry('del', 'Seite löschen',
                 icon: Icons.delete_outline, destructive: true),
           ],
           onSelected: (v) async {
             switch (v) {
-              case 'dup':
-                await _addPage(duplicate: true);
-              case 'tpl':
-                await _chooseTemplate(_page);
+              case 'goto':
+                await _askGoTo();
+              case 'nextmark':
+                await _nextBookmark();
               case 'del':
                 _deletePage(_page);
               case 'knowledge':

@@ -3,7 +3,9 @@ import 'dart:ui' show FontFeature;
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
+import '../ink/camera.dart';
 import '../ink/ink_controller.dart';
+import 'clean_menu.dart';
 
 /// Kopfleiste im Editor (Notizbuch, Dokument, Canvas): eine schwebende
 /// „Insel“ über dem Schreibtisch – oben die Navigation, darunter die
@@ -96,8 +98,11 @@ class EditorNavBar extends StatelessWidget {
     this.onTitleTap,
     this.center,
     this.actions = const [],
+    this.icon,
   });
 
+  /// Kleines Symbol vor dem Titel (Notizbuch, PDF, Canvas).
+  final IconData? icon;
   final String title;
   final String? subtitle;
   final VoidCallback? onBack;
@@ -122,10 +127,35 @@ class EditorNavBar extends StatelessWidget {
             flex: 2,
             child: InkWell(
               onTap: onTitleTap,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
               child: Padding(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (icon != null) ...[
+                      Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              mf.accent.withValues(alpha: 0.32),
+                              mf.accent2.withValues(alpha: 0.16),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(9),
+                          border: Border.all(
+                              color: mf.accent.withValues(alpha: 0.3)),
+                        ),
+                        child: Icon(icon, size: 16, color: mf.text),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Flexible(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -143,6 +173,9 @@ class EditorNavBar extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontSize: 11, color: mf.textMuted)),
+                  ],
+                ),
+                    ),
                   ],
                 ),
               ),
@@ -337,6 +370,153 @@ class UndoRedoButtons extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Gruppe von Knöpfen in einer dezenten Kapsel – ordnet die Kopfleiste.
+class NavGroup extends StatelessWidget {
+  const NavGroup({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 3),
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: mf.surfaceRaised.withValues(alpha: mf.isDark ? 0.75 : 1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: mf.glassEdge),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: children),
+    );
+  }
+}
+
+/// Zoom-Anzeige mit Menü: „125 % ▾“ → einpassen, 100 %, 200 % …
+class ZoomPill extends StatelessWidget {
+  const ZoomPill({
+    super.key,
+    required this.camera,
+    required this.onFit,
+    this.fitLabel = 'Ganze Seite',
+    this.onFitWidth,
+  });
+
+  final Camera camera;
+  final VoidCallback onFit;
+  final String fitLabel;
+  final VoidCallback? onFitWidth;
+
+  void _zoomTo(double target) {
+    final v = camera.viewport;
+    if (v.isEmpty || camera.scale <= 0) return;
+    camera.zoomAt(Offset(v.width / 2, v.height / 2), target / camera.scale);
+  }
+
+  void _zoomBy(double f) {
+    final v = camera.viewport;
+    if (v.isEmpty) return;
+    camera.zoomAt(Offset(v.width / 2, v.height / 2), f);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    return ListenableBuilder(
+      listenable: camera,
+      builder: (context, _) {
+        final pct = (camera.scale * 100).round();
+        return CleanMenuButton(
+          tooltip: 'Zoom',
+          trigger: Container(
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.zoom_in_rounded, size: 17, color: mf.textMuted),
+                const SizedBox(width: 5),
+                Text('$pct %',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                        color: mf.text)),
+                Icon(Icons.expand_more_rounded, size: 16, color: mf.textMuted),
+              ],
+            ),
+          ),
+          entries: [
+            const CleanMenuEntry('in', 'Vergrößern', icon: Icons.zoom_in_rounded),
+            const CleanMenuEntry('out', 'Verkleinern',
+                icon: Icons.zoom_out_rounded),
+            const CleanMenuEntry.divider(),
+            CleanMenuEntry('fit', fitLabel, icon: Icons.fit_screen_outlined),
+            if (onFitWidth != null)
+              const CleanMenuEntry('width', 'Seitenbreite',
+                  icon: Icons.width_full_outlined),
+            CleanMenuEntry('100', '100 %',
+                icon: Icons.crop_square_rounded, checked: pct == 100),
+            CleanMenuEntry('200', '200 %',
+                icon: Icons.zoom_out_map_rounded, checked: pct == 200),
+          ],
+          onSelected: (v) {
+            switch (v) {
+              case 'in':
+                _zoomBy(1.25);
+              case 'out':
+                _zoomBy(0.8);
+              case 'fit':
+                onFit();
+              case 'width':
+                onFitWidth?.call();
+              case '100':
+                _zoomTo(1);
+              case '200':
+                _zoomTo(2);
+            }
+          },
+        );
+      },
+    );
+  }
+}
+
+/// Schalter „Nur Stift“: an = Finger verschiebt nur, aus = Finger schreibt.
+class StylusToggle extends StatelessWidget {
+  const StylusToggle({super.key, required this.controller});
+
+  final InkController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final only = controller.stylusOnly;
+        return NavIconButton(
+          icon: only ? Icons.draw_outlined : Icons.touch_app_outlined,
+          tooltip: only
+              ? 'Nur Stift schreibt – tippen: auch mit dem Finger schreiben'
+              : 'Finger schreibt mit – tippen: nur mit dem Stift schreiben',
+          active: !only,
+          onTap: () {
+            controller.setStylusOnly(!only);
+            ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+              duration: const Duration(seconds: 2),
+              content: Text(only
+                  ? 'Mit dem Finger schreiben: an'
+                  : 'Nur Stift: Finger verschieben und zoomen'),
+            ));
+          },
+        );
+      },
     );
   }
 }

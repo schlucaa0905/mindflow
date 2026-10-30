@@ -221,8 +221,8 @@ TCP:verbindungsorientiert
       expect(hits.first.snippet, contains('OSI'));
     });
 
-    test('Datenbank ist auf Version 2', () {
-      expect(db.raw.userVersion, 2);
+    test('Datenbank ist auf Version 3', () {
+      expect(db.raw.userVersion, 3);
     });
   });
 }

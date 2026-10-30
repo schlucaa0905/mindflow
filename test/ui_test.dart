@@ -198,4 +198,35 @@ void main() {
     expect(find.text('Runde geschafft!'), findsOneWidget);
     expect(services.study.stats(DateTime.now()).due, 0);
   });
+
+  testWidgets('Textfeld-Leiste: fett, kursiv, Aufzählung', (tester) async {
+    final db = AppDatabase.inMemory();
+    addTearDown(db.dispose);
+    final repo = TextRepository(db.raw);
+    final c = InkController(stylusOnly: true)..setTool(ToolMode.text);
+    final key = GlobalKey<TextLayerState>();
+    await tester.pumpWidget(_app(SizedBox(
+      width: 900,
+      height: 600,
+      child: Stack(children: [
+        Positioned.fill(
+          child: TextLayer(key: key, ownerId: 's', controller: c, repo: repo),
+        ),
+      ]),
+    )));
+    key.currentState!.createAt(const Offset(40, 200));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Fett (Strg/⌘ + B)'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Kursiv (Strg/⌘ + I)'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Aufzählung'));
+    await tester.pump();
+    final t = repo.items('s').single;
+    expect(t.bold, isTrue);
+    expect(t.italic, isTrue);
+    expect(t.text, '• ');
+    key.currentState!.finishEditing();
+    await tester.pumpAndSettle();
+  });
 }

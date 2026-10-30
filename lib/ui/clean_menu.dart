@@ -10,6 +10,7 @@ class CleanMenuEntry {
     this.icon,
     this.subtitle,
     this.destructive = false,
+    this.checked = false,
   });
 
   const CleanMenuEntry.divider()
@@ -17,7 +18,8 @@ class CleanMenuEntry {
         label = '',
         icon = null,
         subtitle = null,
-        destructive = false;
+        destructive = false,
+        checked = false;
 
   /// null = Trennlinie.
   final String? value;
@@ -27,6 +29,9 @@ class CleanMenuEntry {
 
   /// Rot dargestellt (z. B. Löschen).
   final bool destructive;
+
+  /// Mit Häkchen (z. B. eingeschaltete Option).
+  final bool checked;
 
   bool get isDivider => value == null;
 }
@@ -42,7 +47,11 @@ class CleanMenuButton extends StatefulWidget {
     this.tooltip = 'Mehr',
     this.iconColor,
     this.size = 38,
+    this.trigger,
   });
+
+  /// Eigener Auslöser statt des Symbols (z. B. „125 % ▾“).
+  final Widget? trigger;
 
   final List<CleanMenuEntry> entries;
   final ValueChanged<String> onSelected;
@@ -98,12 +107,13 @@ class _CleanMenuButtonState extends State<CleanMenuButton> {
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
           onTap: () => ctrl.isOpen ? ctrl.close() : ctrl.open(),
-          child: SizedBox(
-            width: widget.size,
-            height: widget.size,
-            child: Icon(widget.icon,
-                size: 20, color: widget.iconColor ?? mf.text),
-          ),
+          child: widget.trigger ??
+              SizedBox(
+                width: widget.size,
+                height: widget.size,
+                child: Icon(widget.icon,
+                    size: 20, color: widget.iconColor ?? mf.text),
+              ),
         ),
       ),
     );
@@ -162,6 +172,8 @@ class _MenuRow extends StatelessWidget {
                   ],
                 ),
               ),
+              if (entry.checked)
+                Icon(Icons.check_rounded, size: 18, color: mf.accent),
             ],
           ),
         ),

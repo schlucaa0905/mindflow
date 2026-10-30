@@ -177,8 +177,9 @@ class _DocumentScreenState extends State<DocumentScreen> {
   Widget _nav(BuildContext context, InkController c) {
     final doc = _doc!;
     return EditorNavBar(
+      icon: Icons.picture_as_pdf_rounded,
       title: doc.displayTitle,
-      subtitle: 'PDF',
+      subtitle: 'PDF · ${doc.pageSizes.length} Seiten',
       onTitleTap: () async {
         final t = await askText(context,
             title: 'Dokument umbenennen', initial: doc.title);
@@ -194,28 +195,60 @@ class _DocumentScreenState extends State<DocumentScreen> {
         onTap: _showOverview,
       ),
       actions: [
-        NavIconButton(
-          icon: Icons.grid_view_rounded,
-          tooltip: 'Seitenübersicht',
-          onTap: _showOverview,
-        ),
-        const NavDivider(),
-        UndoRedoButtons(controller: c),
-        const NavDivider(),
-        NavIconButton(
-          icon: Icons.co_present_outlined,
-          tooltip: 'Präsentieren (nur das Blatt zeigen)',
-          onTap: () => setState(() => _presenting = true),
-        ),
+        NavGroup(children: [
+          NavIconButton(
+            icon: Icons.grid_view_rounded,
+            tooltip: 'Seitenübersicht',
+            onTap: _showOverview,
+          ),
+        ]),
+        NavGroup(children: [UndoRedoButtons(controller: c)]),
+        NavGroup(children: [
+          ZoomPill(
+            camera: c.camera,
+            onFit: () => _surfaceKey.currentState?.fitPage(),
+            onFitWidth: () => _surfaceKey.currentState?.fitWidth(),
+          ),
+        ]),
+        NavGroup(children: [
+          ListenableBuilder(
+            listenable: c,
+            builder: (context, _) => NavIconButton(
+              icon: Icons.title_rounded,
+              tooltip: 'Textfeld (Tastatur) – dann aufs Blatt tippen',
+              active: c.tool == ToolMode.text,
+              onTap: () => c.setTool(ToolMode.text),
+            ),
+          ),
+          StylusToggle(controller: c),
+          NavIconButton(
+            icon: Icons.co_present_outlined,
+            tooltip: 'Präsentieren (nur das Blatt zeigen)',
+            onTap: () => setState(() => _presenting = true),
+          ),
+        ]),
         EditorMoreMenu(
           entries: const [
+            CleanMenuEntry('goto', 'Zu Seite springen …',
+                icon: Icons.low_priority_rounded),
             CleanMenuEntry('knowledge', 'Wissenseintrag erstellen',
                 icon: Icons.hub_outlined,
                 subtitle: 'Mit diesem Dokument verknüpft'),
+            CleanMenuEntry.divider(),
             CleanMenuEntry('export', 'Mit Notizen als PDF teilen',
                 icon: Icons.ios_share_outlined),
           ],
           onSelected: (v) async {
+            if (v == 'goto') {
+              final t = await askText(context,
+                  title: 'Zu Seite springen',
+                  hint: '1 – ${doc.pageSizes.length}',
+                  confirm: 'Springen');
+              final n = int.tryParse(t?.trim() ?? '');
+              if (n != null && mounted) {
+                await _goTo((n - 1).clamp(0, doc.pageSizes.length - 1).toInt());
+              }
+            }
             if (v == 'knowledge') await _createKnowledge();
             if (v == 'export') await _export();
           },

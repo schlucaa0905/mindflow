@@ -2,7 +2,7 @@
 
 *Your thoughts. Connected.*
 
-Version 0.7 – Neues Design, Textfelder und Lernen.
+Version 0.8 – Canvas-Karten, Textfelder und Kopfleiste stark ausgebaut.
 
 ## Was drin ist
 
@@ -22,6 +22,30 @@ Version 0.7 – Neues Design, Textfelder und Lernen.
 - **Lernen:** Karteikarten mit Wiederholungsplan (wie Anki), Lernsets pro Wissenseintrag, Fortschritt auf Home.
 
 **Handschrift** (wie in Phase 0 getestet): Druck, Glättung, Textmarker, Radierer, Rückgängig, Handballen-Schutz, „Nur Stift“ schaltet sich automatisch ein, sobald ein Stift erkannt wird.
+
+## Neu in 0.8 – Canvas, Text und Kopfleiste ausgebaut
+
+**Canvas-Karten**
+- Fünf Kartenarten: Karte, Notizzettel, Überschrift, Kapsel, Kreis. Dazu 9 Farben plus eigene Farbe.
+- Direkt auf der Karte schreiben (Doppeltippen oder Enter), ohne Dialog. Die Höhe passt sich dem Text an.
+- Schwebende Leiste an der gewählten Karte: Farbe, Art, Schriftgröße, fett, zentriert, Aufgabenliste, duplizieren, kopieren, als Wissenseintrag, verknüpfen, nach vorne/hinten, löschen.
+- „+“ an allen vier Seiten: neue, gleich verbundene Karte. Oder vom „+“ ziehen: zu einer Karte verbinden bzw. ins Leere ziehen für eine neue Karte.
+- Größe ändern am Griff unten rechts. Aufgaben `[ ]` direkt auf der Karte abhaken.
+- Verbindungen als weiche Kurven, mit Pfeil (keiner, einer, beide), gestrichelt, Farbe, Beschriftung und „Richtung umdrehen“. Verbindung antippen zum Bearbeiten.
+- Rückgängig/Wiederholen auch für Karten. Kopieren und Einfügen zwischen verschiedenen Canvas-Flächen. Am Raster ausrichten.
+- Tastatur: Enter, Esc, Tab (verbundene Karte), Pfeiltasten, Entf, Strg/⌘ + Z/Y/C/X/V/D.
+
+**Textfelder (Tastatur)**
+- Schriftarten Standard, Serif, Mono, Rund. Fett, kursiv, unterstrichen (auch Strg/⌘ + B/I/U).
+- Ausrichtung links, mittig, rechts. Aufzählungen und Nummerierung laufen beim Enter automatisch weiter.
+- Textfarbe, Hintergrund (Textmarker, Kasten, Notiz), duplizieren.
+
+**Kopfleiste**
+- Aufgeräumt in Gruppen, mit Symbol vor dem Titel.
+- Zoom-Menü mit Prozentanzeige: ganze Seite, Seitenbreite, 100 %, 200 %.
+- Schalter „Nur Stift / Finger schreibt mit“ direkt in der Leiste.
+- Notizbuch: Lesezeichen, „Nächstes Lesezeichen“, „Zu Seite springen“, Einfügen-Menü (Seite davor/danach, duplizieren, Textfeld, Vorlage).
+- PDF: Textfeld-Knopf, Zoom, „Zu Seite springen“.
 
 ## Neu in 0.7 – Neues Design, Textfelder, Lernen
 
@@ -166,7 +190,7 @@ lib/
     database.dart           SQLite-Schema und Migrationen
     models.dart             Objekt, Karte, Verbindung
     object_repository.dart  Notizbücher, Seiten, Canvas, Links, Papierkorb
-    canvas_repository.dart  Karten und Verbindungen
+    canvas_repository.dart  Karten, Verbindungen, Rückgängig-Stände
     text_repository.dart    Textfelder (Tastatur) pro Seite
     study_repository.dart   Karteikarten, Lernsets, Statistik
     srs.dart                Wiederholungsplan (Anki-Prinzip)
@@ -176,6 +200,7 @@ lib/
     ink_toolbar.dart        Werkzeugleiste
     ink_session.dart        Automatisches, absturzsicheres Speichern
     text_layer.dart         Textfelder über der Handschrift
+    list_formatter.dart     Aufzählungen beim Tippen fortsetzen
     …                       Striche, Kamera, Rendering, Rückgängig
   features/                 Die Bereiche
     home/  notebook/  canvas/  documents/  knowledge/  study/  search/  archive/  common/

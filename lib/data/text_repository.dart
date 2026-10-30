@@ -1,8 +1,31 @@
 import 'dart:convert';
 
+import 'dart:ui' show TextAlign;
 import 'package:flutter/foundation.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:uuid/uuid.dart';
+
+/// Schriftart eines Textfelds.
+enum TextFont {
+  sans('Standard'),
+  serif('Serif'),
+  mono('Mono'),
+  rounded('Rund');
+
+  const TextFont(this.label);
+  final String label;
+}
+
+/// Hintergrund eines Textfelds.
+enum TextBackground {
+  none('Ohne'),
+  marker('Textmarker'),
+  box('Kasten'),
+  note('Notiz');
+
+  const TextBackground(this.label);
+  final String label;
+}
 
 /// Ein Textfeld auf einer Seite (mit der Tastatur geschrieben).
 /// Koordinaten in Welt- bzw. Seiten-Punkten, wie die Handschrift.
@@ -17,6 +40,11 @@ class TextItem {
     required this.size,
     required this.color,
     this.bold = false,
+    this.italic = false,
+    this.underline = false,
+    this.font = TextFont.sans,
+    this.align = TextAlign.left,
+    this.background = TextBackground.none,
   });
 
   factory TextItem.fromRow(Row r) {
@@ -38,6 +66,18 @@ class TextItem {
       size: size is num ? size.toDouble().clamp(6, 120).toDouble() : 18,
       color: color is int ? color : 0xFF1C1C22,
       bold: data['bold'] == true,
+      italic: data['italic'] == true,
+      underline: data['underline'] == true,
+      font: TextFont.values.firstWhere((f) => f.name == data['font'],
+          orElse: () => TextFont.sans),
+      align: switch (data['align']) {
+        'center' => TextAlign.center,
+        'right' => TextAlign.right,
+        _ => TextAlign.left,
+      },
+      background: TextBackground.values.firstWhere(
+          (b) => b.name == data['bg'],
+          orElse: () => TextBackground.none),
     );
   }
 
@@ -52,9 +92,24 @@ class TextItem {
   double size;
   int color;
   bool bold;
+  bool italic;
+  bool underline;
+  TextFont font;
+  TextAlign align;
+  TextBackground background;
 
-  Map<String, dynamic> get data =>
-      {'text': text, 'size': size, 'color': color, 'bold': bold};
+  Map<String, dynamic> get data => {
+        'text': text,
+        'size': size,
+        'color': color,
+        'bold': bold,
+        if (italic) 'italic': true,
+        if (underline) 'underline': true,
+        if (font != TextFont.sans) 'font': font.name,
+        if (align != TextAlign.left)
+          'align': align == TextAlign.center ? 'center' : 'right',
+        if (background != TextBackground.none) 'bg': background.name,
+      };
 
   TextItem copy({String? id, String? ownerId, double dx = 0, double dy = 0}) =>
       TextItem(
@@ -67,6 +122,11 @@ class TextItem {
         size: size,
         color: color,
         bold: bold,
+        italic: italic,
+        underline: underline,
+        font: font,
+        align: align,
+        background: background,
       );
 }
 
