@@ -221,34 +221,125 @@ Future<void> createBoard(BuildContext context) async {
   await openObject(context, board);
 }
 
-/// PDF auswählen, importieren und öffnen.
+/// PDF(s) auswählen und importieren. Eine Datei wird direkt geöffnet,
+/// bei mehreren erscheint eine kurze Bestätigung.
 Future<void> importDocument(BuildContext context) async {
   final repo = Services.of(context).objects;
   final messenger = ScaffoldMessenger.maybeOf(context);
-  final picked = await PdfService.pick();
-  if (picked == null || !context.mounted) return;
+  final picked = await PdfService.pickMany();
+  if (picked.isEmpty || !context.mounted) return;
   final navigator = Navigator.of(context, rootNavigator: true);
+  final progress = ValueNotifier<int>(0);
   showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => const AlertDialog(
-      content: Row(children: [
-        SizedBox(width: 24, height: 24, child: CircularProgressIndicator()),
-        SizedBox(width: 16),
-        Expanded(child: Text('PDF wird importiert …')),
-      ]),
+    builder: (_) => AlertDialog(
+      content: ValueListenableBuilder<int>(
+        valueListenable: progress,
+        builder: (_, done, __) => Row(children: [
+          const SizedBox(
+              width: 24, height: 24, child: CircularProgressIndicator()),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(picked.length == 1
+                ? 'PDF wird importiert …'
+                : 'Importiere ${done + 1} von ${picked.length} …'),
+          ),
+        ]),
+      ),
     ),
   );
-  MfObject? doc;
-  try {
-    doc = await PdfService.importBytes(repo, picked.bytes, title: picked.title);
-  } catch (e) {
-    messenger?.showSnackBar(
-        SnackBar(content: Text('Import fehlgeschlagen: $e')));
-  } finally {
-    navigator.pop();
+  final imported = <MfObject>[];
+  final failed = <String>[];
+  for (var i = 0; i < picked.length; i++) {
+    progress.value = i;
+    try {
+      imported.add(await PdfService.importBytes(repo, picked[i].bytes,
+          title: picked[i].title));
+    } catch (_) {
+      failed.add(picked[i].title);
+    }
   }
-  if (doc != null && context.mounted) await openObject(context, doc);
+  navigator.pop();
+  progress.dispose();
+  if (failed.isNotEmpty) {
+    messenger?.showSnackBar(SnackBar(
+        content: Text('Nicht lesbar: ${failed.join(', ')}')));
+  }
+  if (imported.length == 1 && context.mounted) {
+    await openObject(context, imported.single);
+  } else if (imported.length > 1) {
+    messenger?.showSnackBar(SnackBar(
+        content: Text('${imported.length} Dokumente importiert – '
+            'du findest sie unter „Dokumente“.')));
+  }
+}
+
+/// Geführter Import aus Goodnotes (über PDF-Export).
+Future<void> importFromGoodnotes(BuildContext context) async {
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (ctx) {
+      final mf = ctx.mf;
+      Widget step(String nr, String text) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 26,
+                  height: 26,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                      color: mf.accentSoft, shape: BoxShape.circle),
+                  child: Text(nr,
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700, color: mf.accent)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                    child: Text(text,
+                        style: TextStyle(height: 1.45, color: mf.text))),
+              ],
+            ),
+          );
+      return AlertDialog(
+        title: const Text('Aus Goodnotes übernehmen'),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              step('1',
+                  'In Goodnotes die Notizbücher auswählen (in der Übersicht auf „Auswählen“ tippen).'),
+              step('2',
+                  '„Exportieren“ → Format „PDF“ → „In Dateien sichern“.'),
+              step('3',
+                  'Hier auf „PDFs auswählen“ tippen und alle exportierten Dateien markieren.'),
+              const SizedBox(height: 4),
+              Text(
+                  'Deine Handschrift bleibt sichtbar und du kannst direkt weiterschreiben. '
+                  'Das Goodnotes-Format selbst ist nicht offen lesbar – der Weg über PDF '
+                  'ist deshalb der zuverlässigste.',
+                  style: TextStyle(fontSize: 12, color: mf.textMuted)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Abbrechen')),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.file_open_outlined, size: 18),
+            label: const Text('PDFs auswählen'),
+          ),
+        ],
+      );
+    },
+  );
+  if (go == true && context.mounted) await importDocument(context);
 }
 
 /// Neuen Wissenseintrag anlegen und öffnen.
@@ -318,6 +409,12 @@ Future<void> showCreateMenu(BuildContext context) async {
             onTap: () => Navigator.pop(ctx, 'pdf'),
           ),
           ListTile(
+            leading: const Icon(Icons.move_down_outlined),
+            title: const Text('Aus Goodnotes übernehmen'),
+            subtitle: const Text('Notizbücher als PDF importieren'),
+            onTap: () => Navigator.pop(ctx, 'goodnotes'),
+          ),
+          ListTile(
             leading: const Icon(Icons.hub_outlined),
             title: const Text('Wissenseintrag'),
             subtitle: const Text('Thema mit Verknüpfungen'),
@@ -332,5 +429,6 @@ Future<void> showCreateMenu(BuildContext context) async {
   if (choice == 'notebook') await createNotebook(context);
   if (choice == 'board') await createBoard(context);
   if (choice == 'pdf') await importDocument(context);
+  if (choice == 'goodnotes') await importFromGoodnotes(context);
   if (choice == 'knowledge') await createKnowledge(context);
 }

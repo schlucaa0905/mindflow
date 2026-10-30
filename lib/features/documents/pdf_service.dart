@@ -54,6 +54,26 @@ class PdfService {
     return (bytes: bytes, title: title);
   }
 
+  /// Mehrere Dateien auf einmal auswählen (z. B. alle Goodnotes-Exporte).
+  static Future<List<({Uint8List bytes, String title})>> pickMany() async {
+    const group = XTypeGroup(
+      label: 'PDF',
+      extensions: ['pdf'],
+      mimeTypes: ['application/pdf'],
+      uniformTypeIdentifiers: ['com.adobe.pdf'],
+    );
+    final files = await openFiles(acceptedTypeGroups: [group]);
+    final out = <({Uint8List bytes, String title})>[];
+    for (final f in files) {
+      var title = f.name;
+      if (title.toLowerCase().endsWith('.pdf')) {
+        title = title.substring(0, title.length - 4);
+      }
+      out.add((bytes: await f.readAsBytes(), title: title));
+    }
+    return out;
+  }
+
   /// Liest die PDF ein und legt das Dokument an.
   /// Wirft eine Ausnahme mit lesbarer Meldung, wenn die PDF unlesbar ist.
   static Future<MfObject> importBytes(ObjectRepository repo, Uint8List bytes,

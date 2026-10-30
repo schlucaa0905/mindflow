@@ -6,6 +6,7 @@ import '../app/theme.dart';
 import '../ui/color_picker.dart';
 import 'ink_controller.dart';
 import 'ink_toolbar.dart';
+import 'tool_glyphs.dart';
 
 /// Moderne Werkzeugzeile im Goodnotes-Stil – fest unter der Kopfleiste.
 ///
@@ -264,47 +265,58 @@ class _ToolCapsule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final pen = switch (c.penType) {
+      PenType.fountain => GlyphKind.fountain,
+      PenType.ballpoint => GlyphKind.ballpoint,
+      PenType.brush => GlyphKind.brush,
+    };
     return _Capsule(
-      padding: 4,
+      padding: 3,
       children: [
         _ToolItem(
           c: c,
           tool: ToolMode.pen,
-          icon: penIcon(c.penType),
+          glyph: pen,
+          tip: c.penColor,
           label: '${c.penType.label} (P)',
           menu: (_) => PenOptions(c),
         ),
         _ToolItem(
           c: c,
           tool: ToolMode.highlighter,
-          icon: Icons.border_color_outlined,
+          glyph: GlyphKind.highlighter,
+          tip: c.highlighterColor,
           label: 'Textmarker (H)',
           menu: (_) => HighlighterOptions(c),
         ),
         _ToolItem(
           c: c,
           tool: ToolMode.eraser,
-          icon: Icons.auto_fix_normal_outlined,
+          glyph: GlyphKind.eraser,
+          tip: c.penColor,
           label: 'Radierer (E)',
           menu: (_) => EraserOptions(c),
         ),
         _ToolItem(
           c: c,
           tool: ToolMode.lasso,
-          icon: Icons.gesture,
+          glyph: GlyphKind.lasso,
+          tip: c.penColor,
           label: 'Lasso (L)',
         ),
         _ToolItem(
           c: c,
           tool: ToolMode.shape,
-          icon: shapeIcon(c.shapeKind),
+          glyph: GlyphKind.shape,
+          tip: context.mf.accent,
           label: 'Formen (S)',
           menu: (_) => ShapeOptions(c),
         ),
         _ToolItem(
           c: c,
           tool: ToolMode.laser,
-          icon: Icons.highlight_alt,
+          glyph: GlyphKind.laser,
+          tip: const Color(0xFFFF453A),
           label: 'Laserpointer (R)',
         ),
       ],
@@ -312,20 +324,22 @@ class _ToolCapsule extends StatelessWidget {
   }
 }
 
-/// Ein Werkzeug in der Kapsel. Gewählt: gefüllt in Akzentfarbe.
-/// Nochmal antippen: Optionen.
+/// Ein Werkzeug in der Kapsel – als gezeichneter Stift. Gewählt: hebt sich
+/// an und liegt auf einer hellen Fläche. Nochmal antippen: Optionen.
 class _ToolItem extends StatelessWidget {
   const _ToolItem({
     required this.c,
     required this.tool,
-    required this.icon,
+    required this.glyph,
+    required this.tip,
     required this.label,
     this.menu,
   });
 
   final InkController c;
   final ToolMode tool;
-  final IconData icon;
+  final GlyphKind glyph;
+  final Color tip;
   final String label;
   final WidgetBuilder? menu;
 
@@ -333,30 +347,29 @@ class _ToolItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final mf = context.mf;
     final selected = c.tool == tool;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     Widget button(VoidCallback onTap) => Tooltip(
           message: menu == null ? label : '$label – nochmal tippen: Optionen',
           child: GestureDetector(
             onTap: onTap,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
+              duration: const Duration(milliseconds: 200),
               curve: Curves.easeOut,
-              width: 46,
-              height: 40,
+              width: 44,
+              height: 46,
               margin: const EdgeInsets.symmetric(horizontal: 1),
               decoration: BoxDecoration(
-                color: selected ? mf.accent : Colors.transparent,
-                borderRadius: BorderRadius.circular(11),
-                boxShadow: selected
-                    ? [
-                        BoxShadow(
-                            color: mf.accent.withValues(alpha: 0.35),
-                            blurRadius: 10,
-                            offset: const Offset(0, 3)),
-                      ]
-                    : null,
+                color: selected ? mf.accentSoft : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(icon,
-                  size: 21, color: selected ? Colors.white : mf.text),
+              alignment: Alignment.bottomCenter,
+              child: ToolGlyph(
+                kind: glyph,
+                tip: tip,
+                body: dark ? const Color(0xFFE6E6EE) : const Color(0xFF2A2A33),
+                outline: mf.text,
+                selected: selected,
+              ),
             ),
           ),
         );
@@ -364,17 +377,20 @@ class _ToolItem extends StatelessWidget {
     final m = menu;
     if (m == null) return button(() => c.setTool(tool));
     return MenuAnchor(
+      alignmentOffset: const Offset(0, 8),
       style: MenuStyle(
         backgroundColor: WidgetStatePropertyAll(mf.surface),
-        elevation: const WidgetStatePropertyAll(8),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        elevation: const WidgetStatePropertyAll(14),
+        shadowColor: const WidgetStatePropertyAll(Color(0x40000000)),
         shape: WidgetStatePropertyAll(RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: mf.border),
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: mf.border.withValues(alpha: 0.7)),
         )),
       ),
       menuChildren: [
         Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(18),
           child: SizedBox(width: 290, child: Builder(builder: m)),
         ),
       ],

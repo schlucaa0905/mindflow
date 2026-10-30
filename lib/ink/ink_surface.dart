@@ -11,6 +11,7 @@ import 'camera.dart';
 import 'ink_canvas_view.dart';
 import 'ink_controller.dart';
 import 'ink_session.dart';
+import 'surface_overlays.dart';
 import 'tool_row.dart';
 
 /// Eine fertige Schreibfläche für ein Objekt: Zeichnen, Werkzeugleiste,
@@ -30,6 +31,9 @@ class InkSurface extends StatefulWidget {
     this.navBar,
     this.onSwipe,
     this.enterFrom = 0,
+    this.presenting = false,
+    this.onExitPresentation,
+    this.presentationLabel,
     this.drawBounds,
     this.onSaved,
     this.onControllerReady,
@@ -53,6 +57,12 @@ class InkSurface extends StatefulWidget {
 
   /// Mit einem Finger seitlich wischen: +1 = nächste, -1 = vorige Seite.
   final ValueChanged<int>? onSwipe;
+
+  /// Präsentationsmodus: keine Leisten, nur das Blatt und eine kleine,
+  /// fast unsichtbare Steuerkapsel. Ideal zum Spiegeln auf den Beamer.
+  final bool presenting;
+  final VoidCallback? onExitPresentation;
+  final String? presentationLabel;
 
   /// Beim Öffnen hereingleiten: 1 = von rechts (nächste Seite),
   /// -1 = von links (vorige Seite), 0 = ohne Animation.
@@ -101,6 +111,7 @@ class InkSurfaceState extends State<InkSurface>
     });
     widget.onControllerReady?.call(controller);
     if (widget.enterFrom != 0) _enter.forward();
+    if (widget.presenting) _applySystemUi(true);
   }
 
   /// Sofort speichern (z. B. vor dem Duplizieren einer Seite).
@@ -110,6 +121,18 @@ class InkSurfaceState extends State<InkSurface>
   void didUpdateWidget(InkSurface oldWidget) {
     super.didUpdateWidget(oldWidget);
     controller.drawBounds = widget.drawBounds;
+    if (oldWidget.presenting != widget.presenting) {
+      _applySystemUi(widget.presenting);
+      // Nach dem Umschalten (Leiste weg/da) das Blatt neu einpassen.
+      _lastSize = Size.zero;
+      _fitted = false;
+    }
+  }
+
+  /// Vollbild (Statusleiste weg) während der Präsentation.
+  void _applySystemUi(bool presenting) {
+    SystemChrome.setEnabledSystemUIMode(
+        presenting ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
   }
 
   double _fitScale(Size view, Rect r) => math.max(
@@ -154,6 +177,7 @@ class InkSurfaceState extends State<InkSurface>
 
   @override
   void dispose() {
+    if (widget.presenting) _applySystemUi(false);
     _enter.dispose();
     final c = controller;
     session.close().whenComplete(c.dispose);
@@ -229,7 +253,9 @@ class InkSurfaceState extends State<InkSurface>
       child: Column(
         children: [
           // Kopfleiste im Goodnotes-Stil: Navigation + Werkzeuge, fest oben.
+          // Im Präsentationsmodus ausgeblendet.
           Builder(builder: (context) {
+            if (widget.presenting) return const SizedBox.shrink();
             final nav = widget.navBar?.call(context, controller);
             final tools = widget.showInkTools
                 ? ToolRow(controller: controller)
@@ -285,6 +311,25 @@ class InkSurfaceState extends State<InkSurface>
           if (widget.overlayBuilder != null)
             Positioned.fill(child: widget.overlayBuilder!(context, controller)),
           if (!session.loaded) const Center(child: CircularProgressIndicator()),
+          // Zoom-Anzeige oben in der Mitte.
+          Positioned(
+            top: 12,
+            left: 0,
+            right: 0,
+            child: Center(child: ZoomBadge(camera: controller.camera)),
+          ),
+          if (widget.presenting)
+            Positioned(
+              right: 16,
+              bottom: 16,
+              child: SafeArea(
+                child: PresenterControls(
+                  controller: controller,
+                  label: widget.presentationLabel,
+                  onExit: widget.onExitPresentation ?? () {},
+                ),
+              ),
+            ),
         ],
       );
     });

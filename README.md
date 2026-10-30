@@ -23,6 +23,15 @@ Version 0.1 – Fundament, Notizbuch und Infinite Canvas.
 
 **Handschrift** (wie in Phase 0 getestet): Druck, Glättung, Textmarker, Radierer, Rückgängig, Handballen-Schutz, „Nur Stift“ schaltet sich automatisch ein, sobald ein Stift erkannt wird.
 
+## Neu in 0.6 – Feinschliff & Präsentieren
+
+- Neue Werkzeugleiste: gezeichnete Stifte wie in Goodnotes (Füller, Kugelschreiber, Pinsel, Textmarker, Radierer, Lasso, Formen, Laser). Die Spitze zeigt die aktuelle Farbe, das gewählte Werkzeug hebt sich an.
+- Saubere, moderne Menüs überall („…“ im Editor, auf Karten, in der Seitenübersicht, im Wissen) – mit Symbolen, Gruppen und roten Lösch-Einträgen.
+- Kopfleiste geordnet: Seitenübersicht | Rückgängig/Wiederholen | Neue Seite, Präsentieren, Menü.
+- Präsentationsmodus (Symbol „Präsentieren“): nur das Blatt im Vollbild, kleine Steuerkapsel (Stift, Laser, Radierer, Rückgängig, Beenden), die fast unsichtbar wird. Zum Spiegeln per AirPlay/HDMI.
+- Zoom-Anzeige („125 %“) beim Zoomen.
+- Aus Goodnotes übernehmen: geführter Import über PDF-Export, mehrere PDFs auf einmal.
+
 ## Neu in 0.5 – noch mehr Goodnotes
 
 - Kopfleiste ist fest oben und wird nie mehr von der Seite verdeckt.

@@ -7,6 +7,7 @@ import '../../data/models.dart';
 import '../../ink/stroke.dart';
 import '../../ink/stroke_renderer.dart';
 import '../../storage/ink_store.dart';
+import '../../ui/clean_menu.dart';
 import 'page_painter.dart';
 
 /// Alle Seiten als Vorschaubilder (wie die Seitenübersicht in Goodnotes).
@@ -17,7 +18,7 @@ Future<int?> showPageOverview(
   required int count,
   required int current,
   required Widget Function(BuildContext context, int index) thumbnail,
-  List<PopupMenuEntry<String>> Function(int index)? menuItems,
+  List<CleanMenuEntry> Function(int index)? menuItems,
   Future<void> Function(int index, String action)? onMenu,
   VoidCallback? onAdd,
 }) {
@@ -50,7 +51,7 @@ class _PageOverview extends StatelessWidget {
   final int count;
   final int current;
   final Widget Function(BuildContext context, int index) thumbnail;
-  final List<PopupMenuEntry<String>> Function(int index)? menuItems;
+  final List<CleanMenuEntry> Function(int index)? menuItems;
   final Future<void> Function(int index, String action)? onMenu;
   final VoidCallback? onAdd;
 
@@ -114,10 +115,10 @@ class _PageOverview extends StatelessWidget {
                               selected ? FontWeight.w700 : FontWeight.w500,
                           color: selected ? mf.accent : mf.textMuted)),
                   if (menuItems != null)
-                    PopupMenuButton<String>(
-                      icon: Icon(Icons.more_horiz,
-                          size: 18, color: mf.textMuted),
-                      itemBuilder: (_) => menuItems!(i),
+                    CleanMenuButton(
+                      size: 32,
+                      iconColor: mf.textMuted,
+                      entries: menuItems!(i),
                       onSelected: (a) async {
                         Navigator.pop(context);
                         await onMenu?.call(i, a);

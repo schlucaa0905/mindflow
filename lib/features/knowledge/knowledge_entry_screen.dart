@@ -6,6 +6,7 @@ import '../../app/navigation.dart';
 import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
+import '../../ui/clean_menu.dart';
 import '../../ui/widgets.dart';
 import '../common/create_dialogs.dart';
 import '../common/object_info.dart';
@@ -167,7 +168,13 @@ class _KnowledgeEntryScreenState extends State<KnowledgeEntryScreen> {
                 icon: const Icon(Icons.add_link),
                 onPressed: _link,
               ),
-              PopupMenuButton<String>(
+              CleanMenuButton(
+                entries: const [
+                  CleanMenuEntry('archive', 'Archivieren',
+                      icon: Icons.inventory_2_outlined),
+                  CleanMenuEntry('trash', 'In den Papierkorb',
+                      icon: Icons.delete_outline, destructive: true),
+                ],
                 onSelected: (v) {
                   if (v == 'archive') {
                     _s.objects.setArchived(entry.id, true);
@@ -177,11 +184,8 @@ class _KnowledgeEntryScreenState extends State<KnowledgeEntryScreen> {
                     Navigator.of(context).maybePop();
                   }
                 },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'archive', child: Text('Archivieren')),
-                  PopupMenuItem(value: 'trash', child: Text('In den Papierkorb')),
-                ],
               ),
+              const SizedBox(width: 8),
             ],
           ),
           body: Align(

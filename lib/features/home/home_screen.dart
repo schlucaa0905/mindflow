@@ -72,6 +72,11 @@ class HomeScreen extends StatelessWidget {
                   onTap: () => createKnowledge(context),
                 ),
                 _QuickAction(
+                  icon: Icons.move_down_outlined,
+                  label: 'Aus Goodnotes',
+                  onTap: () => importFromGoodnotes(context),
+                ),
+                _QuickAction(
                   icon: Icons.search,
                   label: 'Suchen',
                   onTap: () => onNavigate(Section.search),

@@ -12,6 +12,7 @@ import '../../ink/camera.dart';
 import '../../ink/ink_controller.dart';
 import '../../ink/ink_surface.dart';
 import '../../storage/ink_store.dart';
+import '../../ui/clean_menu.dart';
 import '../../ui/editor_bar.dart';
 import '../../ui/widgets.dart';
 import '../notebook/notebook_screen.dart';
@@ -38,6 +39,9 @@ class _DocumentScreenState extends State<DocumentScreen> {
 
   /// Richtung, aus der die nächste Seite hereingleitet.
   int _enterFrom = 0;
+
+  /// Präsentationsmodus: nur das Blatt ist zu sehen.
+  bool _presenting = false;
   final ValueNotifier<ui.Image?> _image = ValueNotifier(null);
   bool _failed = false;
 
@@ -187,36 +191,26 @@ class _DocumentScreenState extends State<DocumentScreen> {
         onTap: _showOverview,
       ),
       actions: [
-        ListenableBuilder(
-          listenable: c,
-          builder: (context, _) => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              NavIconButton(
-                icon: Icons.undo,
-                tooltip: 'Rückgängig',
-                onTap: c.history.canUndo ? c.undo : null,
-              ),
-              NavIconButton(
-                icon: Icons.redo,
-                tooltip: 'Wiederholen',
-                onTap: c.history.canRedo ? c.redo : null,
-              ),
-            ],
-          ),
-        ),
         NavIconButton(
           icon: Icons.grid_view_rounded,
           tooltip: 'Seitenübersicht',
           onTap: _showOverview,
         ),
+        const NavDivider(),
+        UndoRedoButtons(controller: c),
+        const NavDivider(),
+        NavIconButton(
+          icon: Icons.co_present_outlined,
+          tooltip: 'Präsentieren (nur das Blatt zeigen)',
+          onTap: () => setState(() => _presenting = true),
+        ),
         EditorMoreMenu(
-          controller: c,
-          items: const [
-            PopupMenuItem(
-                value: 'knowledge', child: Text('Wissenseintrag erstellen')),
-            PopupMenuItem(
-                value: 'export', child: Text('Mit Notizen als PDF teilen')),
+          entries: const [
+            CleanMenuEntry('knowledge', 'Wissenseintrag erstellen',
+                icon: Icons.hub_outlined,
+                subtitle: 'Mit diesem Dokument verknüpft'),
+            CleanMenuEntry('export', 'Mit Notizen als PDF teilen',
+                icon: Icons.ios_share_outlined),
           ],
           onSelected: (v) async {
             if (v == 'knowledge') await _createKnowledge();
@@ -257,6 +251,9 @@ class _DocumentScreenState extends State<DocumentScreen> {
                 lockToFit: true,
                 drawBounds: rect,
                 navBar: _nav,
+                presenting: _presenting,
+                onExitPresentation: () => setState(() => _presenting = false),
+                presentationLabel: '${_index + 1} / ${doc.pageSizes.length}',
                 enterFrom: _enterFrom,
                 onSwipe: (d) => _goTo(_index + d),
                 onSaved: () => _s.objects.touch(doc.id),

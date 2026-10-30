@@ -11,6 +11,7 @@ import '../../ink/camera.dart';
 import '../../ink/ink_canvas_view.dart';
 import '../../ink/ink_controller.dart';
 import '../../ink/ink_surface.dart';
+import '../../ui/clean_menu.dart';
 import '../../ui/editor_bar.dart';
 import '../../ui/widgets.dart';
 import '../common/create_dialogs.dart';
@@ -429,31 +430,18 @@ class _BoardScreenState extends State<BoardScreen> {
           tooltip: 'Wissen, PDF oder Notizbuch einfügen',
           onTap: _addReference,
         ),
-        ListenableBuilder(
-          listenable: c,
-          builder: (context, _) => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              NavIconButton(
-                icon: Icons.undo,
-                tooltip: 'Rückgängig (Handschrift)',
-                onTap: c.history.canUndo ? c.undo : null,
-              ),
-              NavIconButton(
-                icon: Icons.redo,
-                tooltip: 'Wiederholen (Handschrift)',
-                onTap: c.history.canRedo ? c.redo : null,
-              ),
-            ],
-          ),
-        ),
+        const NavDivider(),
+        UndoRedoButtons(controller: c),
         EditorMoreMenu(
-          controller: c,
-          items: const [
-            PopupMenuItem(value: 'fit', child: Text('Alles zeigen')),
+          entries: const [
+            CleanMenuEntry('fit', 'Alles zeigen',
+                icon: Icons.fit_screen_outlined),
+            CleanMenuEntry('settings', 'Titel & Hintergrund',
+                icon: Icons.palette_outlined),
           ],
           onSelected: (v) async {
             if (v == 'fit') _fitAll();
+            if (v == 'settings') await _rename();
           },
         ),
       ],

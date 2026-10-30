@@ -3,6 +3,7 @@ import 'dart:ui' show FontFeature;
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
+import '../ink/ink_controller.dart';
 
 /// Kopfleiste im Editor (Notizbuch, Dokument, Canvas) im Stil von
 /// Goodnotes: oben die Navigation, darunter die Werkzeuge.
@@ -237,6 +238,49 @@ class _PagerArrow extends StatelessWidget {
         child: Icon(icon,
             size: 20,
             color: onTap == null ? mf.textMuted.withValues(alpha: 0.35) : mf.text),
+      ),
+    );
+  }
+}
+
+/// Dünne senkrechte Trennlinie zwischen Gruppen in der Kopfleiste.
+class NavDivider extends StatelessWidget {
+  const NavDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 1,
+        height: 22,
+        margin: const EdgeInsets.symmetric(horizontal: 6),
+        color: context.mf.border,
+      );
+}
+
+/// Rückgängig / Wiederholen, aktualisiert sich selbst.
+class UndoRedoButtons extends StatelessWidget {
+  const UndoRedoButtons({super.key, required this.controller});
+
+  final InkController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    return ListenableBuilder(
+      listenable: c,
+      builder: (context, _) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          NavIconButton(
+            icon: Icons.undo_rounded,
+            tooltip: 'Rückgängig (2 Finger tippen)',
+            onTap: c.history.canUndo ? c.undo : null,
+          ),
+          NavIconButton(
+            icon: Icons.redo_rounded,
+            tooltip: 'Wiederholen (3 Finger tippen)',
+            onTap: c.history.canRedo ? c.redo : null,
+          ),
+        ],
       ),
     );
   }

@@ -4,6 +4,7 @@ import '../../app/navigation.dart';
 import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
+import '../../ui/clean_menu.dart';
 import '../../ui/widgets.dart';
 import '../notebook/notebook_cover.dart';
 import 'create_dialogs.dart';
@@ -270,9 +271,25 @@ class ObjectMenu extends StatelessWidget {
     final repo = Services.of(context).objects;
     final o = object;
     final isNotebook = o.type == ObjectType.notebook;
-    return PopupMenuButton<String>(
-      tooltip: 'Mehr',
-      icon: Icon(Icons.more_horiz, color: context.mf.textMuted),
+    return CleanMenuButton(
+      iconColor: context.mf.textMuted,
+      size: 34,
+      entries: [
+        if (isNotebook)
+          const CleanMenuEntry('edit', 'Aussehen ändern',
+              icon: Icons.palette_outlined,
+              subtitle: 'Titel, Umschlag, Papier, Format')
+        else
+          const CleanMenuEntry('rename', 'Umbenennen',
+              icon: Icons.drive_file_rename_outline),
+        CleanMenuEntry('pin', o.pinned ? 'Nicht mehr anheften' : 'Anheften',
+            icon: o.pinned ? Icons.push_pin : Icons.push_pin_outlined),
+        const CleanMenuEntry.divider(),
+        const CleanMenuEntry('archive', 'Archivieren',
+            icon: Icons.inventory_2_outlined),
+        const CleanMenuEntry('trash', 'In den Papierkorb',
+            icon: Icons.delete_outline, destructive: true),
+      ],
       onSelected: (v) async {
         switch (v) {
           case 'edit':
@@ -293,17 +310,6 @@ class ObjectMenu extends StatelessWidget {
                 () => repo.restore(o.id));
         }
       },
-      itemBuilder: (_) => [
-        if (isNotebook)
-          const PopupMenuItem(
-              value: 'edit', child: Text('Umschlag & Einstellungen'))
-        else
-          const PopupMenuItem(value: 'rename', child: Text('Umbenennen')),
-        PopupMenuItem(
-            value: 'pin', child: Text(o.pinned ? 'Lösen' : 'Anheften')),
-        const PopupMenuItem(value: 'archive', child: Text('Archivieren')),
-        const PopupMenuItem(value: 'trash', child: Text('In den Papierkorb')),
-      ],
     );
   }
 }

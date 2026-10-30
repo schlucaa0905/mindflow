@@ -9,6 +9,7 @@ import '../../export/pdf_export.dart';
 import '../../ink/ink_controller.dart';
 import '../../ink/ink_surface.dart';
 import '../../storage/ink_store.dart';
+import '../../ui/clean_menu.dart';
 import '../../ui/editor_bar.dart';
 import '../../ui/widgets.dart';
 import '../common/create_dialogs.dart';
@@ -37,6 +38,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   /// Richtung, aus der die nächste Seite hereingleitet.
   int _enterFrom = 0;
+
+  /// Präsentationsmodus: nur das Blatt ist zu sehen.
+  bool _presenting = false;
 
   @override
   void didChangeDependencies() {
@@ -199,12 +203,17 @@ class _NotebookScreenState extends State<NotebookScreen> {
       ),
       onAdd: () => _addPage(after: _pages.length - 1),
       menuItems: (i) => [
-        if (i > 0) const PopupMenuItem(value: 'up', child: Text('Nach vorne')),
+        if (i > 0)
+          const CleanMenuEntry('up', 'Nach vorne', icon: Icons.arrow_back),
         if (i < _pages.length - 1)
-          const PopupMenuItem(value: 'down', child: Text('Nach hinten')),
-        const PopupMenuItem(value: 'dup', child: Text('Duplizieren')),
-        const PopupMenuItem(value: 'tpl', child: Text('Vorlage ändern')),
-        const PopupMenuItem(value: 'del', child: Text('Löschen')),
+          const CleanMenuEntry('down', 'Nach hinten',
+              icon: Icons.arrow_forward),
+        const CleanMenuEntry('dup', 'Duplizieren', icon: Icons.copy_all_outlined),
+        const CleanMenuEntry('tpl', 'Vorlage ändern',
+            icon: Icons.view_day_outlined),
+        const CleanMenuEntry.divider(),
+        const CleanMenuEntry('del', 'Löschen',
+            icon: Icons.delete_outline, destructive: true),
       ],
       onMenu: (i, action) async {
         final p = _pages[i];
@@ -282,41 +291,43 @@ class _NotebookScreenState extends State<NotebookScreen> {
         onTap: _showOverview,
       ),
       actions: [
-        ListenableBuilder(
-          listenable: c,
-          builder: (context, _) => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              NavIconButton(
-                icon: Icons.undo,
-                tooltip: 'Rückgängig',
-                onTap: c.history.canUndo ? c.undo : null,
-              ),
-              NavIconButton(
-                icon: Icons.redo,
-                tooltip: 'Wiederholen',
-                onTap: c.history.canRedo ? c.redo : null,
-              ),
-            ],
-          ),
-        ),
-        NavIconButton(
-          icon: Icons.palette_outlined,
-          tooltip: 'Aussehen: Umschlag, Papier, Format',
-          onTap: _editNotebook,
-        ),
         NavIconButton(
           icon: Icons.grid_view_rounded,
           tooltip: 'Seitenübersicht',
           onTap: _showOverview,
         ),
+        const NavDivider(),
+        UndoRedoButtons(controller: c),
+        const NavDivider(),
         NavIconButton(
           icon: Icons.note_add_outlined,
-          tooltip: 'Seite dahinter einfügen',
+          tooltip: 'Neue Seite dahinter',
           onTap: () => _addPage(),
         ),
+        NavIconButton(
+          icon: Icons.co_present_outlined,
+          tooltip: 'Präsentieren (nur das Blatt zeigen)',
+          onTap: () => setState(() => _presenting = true),
+        ),
         EditorMoreMenu(
-          controller: c,
+          entries: const [
+            CleanMenuEntry('settings', 'Aussehen ändern',
+                icon: Icons.palette_outlined,
+                subtitle: 'Umschlag, Papier, Format'),
+            CleanMenuEntry.divider(),
+            CleanMenuEntry('dup', 'Seite duplizieren',
+                icon: Icons.copy_all_outlined),
+            CleanMenuEntry('tpl', 'Vorlage dieser Seite',
+                icon: Icons.view_day_outlined),
+            CleanMenuEntry('knowledge', 'Wissenseintrag aus Seite',
+                icon: Icons.hub_outlined),
+            CleanMenuEntry.divider(),
+            CleanMenuEntry('export', 'Als PDF teilen',
+                icon: Icons.ios_share_outlined),
+            CleanMenuEntry.divider(),
+            CleanMenuEntry('del', 'Seite löschen',
+                icon: Icons.delete_outline, destructive: true),
+          ],
           onSelected: (v) async {
             switch (v) {
               case 'dup':
@@ -333,18 +344,6 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 await _editNotebook();
             }
           },
-          items: const [
-            PopupMenuItem(value: 'dup', child: Text('Seite duplizieren')),
-            PopupMenuItem(value: 'tpl', child: Text('Vorlage dieser Seite')),
-            PopupMenuItem(value: 'del', child: Text('Seite löschen')),
-            PopupMenuDivider(),
-            PopupMenuItem(
-                value: 'knowledge', child: Text('Wissenseintrag aus Seite')),
-            PopupMenuItem(value: 'export', child: Text('Als PDF teilen')),
-            PopupMenuDivider(),
-            PopupMenuItem(
-                value: 'settings', child: Text('Umschlag & Einstellungen')),
-          ],
         ),
       ],
     );
@@ -383,6 +382,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
           lockToFit: true,
           drawBounds: pageRect,
           navBar: _nav,
+          presenting: _presenting,
+          onExitPresentation: () => setState(() => _presenting = false),
+          presentationLabel: '${_index + 1} / ${_pages.length}',
           enterFrom: _enterFrom,
           onSwipe: (d) => _goTo(_index + d),
           onSaved: () => _s.objects.touch(nb.id),
@@ -398,26 +400,22 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 }
 
-/// "…"-Menü in der Kopfleiste.
+/// "…"-Menü in der Kopfleiste – modern und aufgeräumt.
 class EditorMoreMenu extends StatelessWidget {
   const EditorMoreMenu({
     super.key,
-    required this.controller,
-    required this.items,
+    required this.entries,
     required this.onSelected,
   });
 
-  final InkController controller;
-  final List<PopupMenuEntry<String>> items;
+  final List<CleanMenuEntry> entries;
   final Future<void> Function(String value) onSelected;
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      tooltip: 'Mehr',
-      icon: Icon(Icons.more_horiz, color: context.mf.text),
-      onSelected: onSelected,
-      itemBuilder: (_) => items,
+    return CleanMenuButton(
+      entries: entries,
+      onSelected: (v) => onSelected(v),
     );
   }
 }
