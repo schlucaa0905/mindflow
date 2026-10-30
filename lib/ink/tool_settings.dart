@@ -83,6 +83,10 @@ class ToolSettings extends ChangeNotifier {
   double penWidth = 2.5;
   bool shapeRecognition = true;
 
+  /// Die drei Breiten-Plätze in der Leiste (frei einstellbar).
+  List<double> penWidths = [1.2, 2.6, 5.0];
+  List<double> highlighterWidths = [8, 14, 24];
+
   int highlighterColor = kDefaultHighlighters.first;
   double highlighterWidth = 14;
   bool highlighterStraight = false;
@@ -123,6 +127,8 @@ class ToolSettings extends ChangeNotifier {
         'penColorDark': penColorDark,
         'penColorLight': penColorLight,
         'penWidth': penWidth,
+        'penWidths': penWidths,
+        'highlighterWidths': highlighterWidths,
         'shapeRecognition': shapeRecognition,
         'highlighterColor': highlighterColor,
         'highlighterWidth': highlighterWidth,
@@ -165,6 +171,19 @@ class ToolSettings extends ChangeNotifier {
     s.penColorDark = j['penColorDark'] is int ? j['penColorDark'] as int : s.penColorDark;
     s.penColorLight = j['penColorLight'] is int ? j['penColorLight'] as int : s.penColorLight;
     s.penWidth = (num_(j['penWidth']) ?? s.penWidth).clamp(0.5, 20).toDouble();
+    List<double>? widths(Object? v, double min, double max) {
+      if (v is! List || v.length != 3) return null;
+      final out = <double>[];
+      for (final x in v) {
+        if (x is! num) return null;
+        out.add(x.toDouble().clamp(min, max).toDouble());
+      }
+      return out;
+    }
+
+    s.penWidths = widths(j['penWidths'], 0.3, 20) ?? s.penWidths;
+    s.highlighterWidths =
+        widths(j['highlighterWidths'], 2, 40) ?? s.highlighterWidths;
     s.shapeRecognition = j['shapeRecognition'] is bool ? j['shapeRecognition'] as bool : true;
     s.highlighterColor = j['highlighterColor'] is int ? j['highlighterColor'] as int : s.highlighterColor;
     s.highlighterWidth = (num_(j['highlighterWidth']) ?? s.highlighterWidth).clamp(2, 40).toDouble();

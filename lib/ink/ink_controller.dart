@@ -184,6 +184,24 @@ class InkController extends ChangeNotifier {
         }
       });
 
+  /// Die drei Breiten-Plätze des aktiven Werkzeugs (frei einstellbar).
+  List<double> get widthSlots => tool == ToolMode.highlighter
+      ? settings.highlighterWidths
+      : settings.penWidths;
+
+  /// Ändert einen Breiten-Platz und benutzt ihn sofort.
+  void setWidthSlot(int index, double w) => settings.update(() {
+        final slots = tool == ToolMode.highlighter
+            ? settings.highlighterWidths
+            : settings.penWidths;
+        if (index >= 0 && index < slots.length) slots[index] = w;
+        if (tool == ToolMode.highlighter) {
+          settings.highlighterWidth = w;
+        } else {
+          settings.penWidth = w;
+        }
+      });
+
   // --- Lieblingsstifte ---------------------------------------------------
 
   void saveCurrentAsPreset() {
@@ -259,6 +277,7 @@ class InkController extends ChangeNotifier {
 
   void beginStroke(Offset world, double pressure) {
     shapeLocked = false;
+    _straightLine = false;
     final hl = tool == ToolMode.highlighter;
     final InkTool t;
     if (hl) {
@@ -278,8 +297,19 @@ class InkController extends ChangeNotifier {
         tool: t);
   }
 
+  /// true, wenn der Textmarker durch Halten zur geraden Linie wurde.
+  bool _straightLine = false;
+
   void extendStroke(Offset world, double pressure) {
-    if (shapeLocked) return;
+    if (shapeLocked) {
+      if (_straightLine && live.points.length >= 6) {
+        final p = live.points;
+        final w = clampToBounds(world);
+        live.setPoints([p[0], p[1], 0.5, w.dx, w.dy, 0.5],
+            width: live.width, color: live.color, tool: live.tool);
+      }
+      return;
+    }
     live.extend(clampToBounds(world), pressure, 0.6 / camera.scale);
   }
 
@@ -288,9 +318,21 @@ class InkController extends ChangeNotifier {
   /// wenn eine Form erkannt wurde.
   bool recognizeHeldStroke() {
     if (!live.active || shapeLocked) return false;
-    if (tool == ToolMode.highlighter || !settings.shapeRecognition) {
-      return false;
+    // Textmarker: Halten macht eine gerade Linie (wie bei Goodnotes).
+    // Danach folgt das Linienende weiter dem Stift.
+    if (tool == ToolMode.highlighter) {
+      final p = live.points;
+      if (p.length < 6) return false;
+      final a = Offset(p[0], p[1]);
+      final b = Offset(p[p.length - 3], p[p.length - 2]);
+      if ((b - a).distance * camera.scale < 12) return false;
+      live.setPoints([a.dx, a.dy, 0.5, b.dx, b.dy, 0.5],
+          width: live.width, color: live.color, tool: InkTool.highlighter);
+      shapeLocked = true;
+      _straightLine = true;
+      return true;
     }
+    if (!settings.shapeRecognition) return false;
     final shape = recognizeShape(live.points, minSize: 12 / camera.scale);
     if (shape == null) return false;
     live.setPoints(shape,
@@ -302,6 +344,7 @@ class InkController extends ChangeNotifier {
   void commitStroke() {
     final width = live.width, color = live.color, t = live.tool;
     shapeLocked = false;
+    _straightLine = false;
     var pts = live.finish();
     if (pts == null || pts.isEmpty) return;
     // Textmarker gerade ziehen (Option).
@@ -326,6 +369,7 @@ class InkController extends ChangeNotifier {
 
   void cancelStroke() {
     shapeLocked = false;
+    _straightLine = false;
     live.cancel();
   }
 

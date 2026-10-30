@@ -35,6 +35,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
   int _index = 0;
   GlobalKey<InkSurfaceState> _surfaceKey = GlobalKey();
 
+  /// Richtung, aus der die nächste Seite hereingleitet.
+  int _enterFrom = 0;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -75,6 +78,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     await _flush();
     if (!mounted) return;
     setState(() {
+      _enterFrom = i > _index ? 1 : -1;
       _index = i;
       _surfaceKey = GlobalKey();
     });
@@ -96,6 +100,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     setState(() {
       _reload();
       _index = _pages.indexWhere((p) => p.id == page.id);
+      _enterFrom = 1;
       _surfaceKey = GlobalKey();
     });
   }
@@ -109,6 +114,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     _s.objects.trash(page.id);
     setState(() {
       _reload();
+      _enterFrom = 0;
       _surfaceKey = GlobalKey();
     });
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -169,6 +175,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     if (!mounted) return;
     setState(() {
       _reload();
+      _enterFrom = 0;
       _surfaceKey = GlobalKey();
     });
   }
@@ -294,6 +301,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
           ),
         ),
         NavIconButton(
+          icon: Icons.palette_outlined,
+          tooltip: 'Aussehen: Umschlag, Papier, Format',
+          onTap: _editNotebook,
+        ),
+        NavIconButton(
           icon: Icons.grid_view_rounded,
           tooltip: 'Seitenübersicht',
           onTap: _showOverview,
@@ -371,6 +383,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
           lockToFit: true,
           drawBounds: pageRect,
           navBar: _nav,
+          enterFrom: _enterFrom,
+          onSwipe: (d) => _goTo(_index + d),
           onSaved: () => _s.objects.touch(nb.id),
           backgroundBuilder: (camera) => PagePainter(
             camera: camera,
@@ -384,9 +398,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 }
 
-/// "…"-Menü mit Zusatzpunkt für die Werkzeugleiste.
+/// "…"-Menü in der Kopfleiste.
 class EditorMoreMenu extends StatelessWidget {
   const EditorMoreMenu({
+    super.key,
     required this.controller,
     required this.items,
     required this.onSelected,
@@ -398,37 +413,11 @@ class EditorMoreMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = controller.settings;
     return PopupMenuButton<String>(
       tooltip: 'Mehr',
       icon: Icon(Icons.more_horiz, color: context.mf.text),
-      onSelected: (v) {
-        if (v == '_toolbar') {
-          s.update(() {
-            if (s.dock == ToolbarDock.top) {
-              s.dock = ToolbarDock.floating;
-              s.floatX = 0.3;
-              s.floatY = 0.05;
-            } else {
-              s.dock = ToolbarDock.top;
-            }
-            s.collapsed = false;
-          });
-          return;
-        }
-        onSelected(v);
-      },
-      itemBuilder: (_) => [
-        ...items,
-        const PopupMenuDivider(),
-        PopupMenuItem(
-          value: '_toolbar',
-          child: Text(s.dock == ToolbarDock.top
-              ? 'Werkzeugleiste frei verschiebbar'
-              : 'Werkzeugleiste oben fest'),
-        ),
-      ],
+      onSelected: onSelected,
+      itemBuilder: (_) => items,
     );
   }
 }
-

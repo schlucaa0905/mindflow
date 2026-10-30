@@ -35,6 +35,9 @@ class _DocumentScreenState extends State<DocumentScreen> {
   MfObject? _doc;
   int _index = 0;
   GlobalKey<InkSurfaceState> _surfaceKey = GlobalKey();
+
+  /// Richtung, aus der die nächste Seite hereingleitet.
+  int _enterFrom = 0;
   final ValueNotifier<ui.Image?> _image = ValueNotifier(null);
   bool _failed = false;
 
@@ -83,6 +86,7 @@ class _DocumentScreenState extends State<DocumentScreen> {
     await _surfaceKey.currentState?.flush();
     if (!mounted) return;
     setState(() {
+      _enterFrom = i > _index ? 1 : -1;
       _index = i;
       _failed = false;
       _surfaceKey = GlobalKey();
@@ -253,6 +257,8 @@ class _DocumentScreenState extends State<DocumentScreen> {
                 lockToFit: true,
                 drawBounds: rect,
                 navBar: _nav,
+                enterFrom: _enterFrom,
+                onSwipe: (d) => _goTo(_index + d),
                 onSaved: () => _s.objects.touch(doc.id),
                 backgroundBuilder: (camera) =>
                     PdfPagePainter(camera: camera, image: _image, page: rect),

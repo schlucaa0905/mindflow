@@ -41,7 +41,7 @@ Paint paintFor(InkTool tool, Color color, double width) {
       // Gleichmäßige Breite, etwa wie ein Füller mit mittlerem Druck.
       p
         ..style = PaintingStyle.stroke
-        ..strokeWidth = width * 0.7
+        ..strokeWidth = width * 0.8
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
         ..color = color;
@@ -92,7 +92,7 @@ Path _penOutline(List<double> pts, double width, {bool brush = false}) {
 
   double radius(int i) {
     final p = pts[i * 3 + 2].clamp(0.0, 1.0).toDouble();
-    if (!brush) return math.max(0.3, width / 2 * (0.4 + 0.6 * p));
+    if (!brush) return math.max(0.3, width / 2 * (0.5 + 0.7 * p));
     // Spitze Enden: die ersten und letzten 15 % laufen aus.
     final edge = math.max(1, (n * 0.15).round());
     final fromEdge = math.min(i, n - 1 - i);

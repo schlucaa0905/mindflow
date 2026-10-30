@@ -142,6 +142,18 @@ class InkScene extends ChangeNotifier {
     return hits;
   }
 
+  /// Grobes, schnelles Rechteck um alle Inhalte (über die Abschnitte).
+  /// Für Übersichtskarten, wo es auf Geschwindigkeit ankommt.
+  Rect? roughBounds() {
+    if (_alive == 0) return null;
+    Rect? r;
+    for (final c in _chunks.values) {
+      if (c.strokes.every((s) => s.deleted)) continue;
+      r = r == null ? c.bounds : r.expandToInclude(c.bounds);
+    }
+    return r;
+  }
+
   /// Umschließendes Rechteck aller sichtbaren Striche.
   Rect? contentBounds() {
     Rect? r;

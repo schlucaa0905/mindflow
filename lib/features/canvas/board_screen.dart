@@ -13,9 +13,11 @@ import '../../ink/ink_controller.dart';
 import '../../ink/ink_surface.dart';
 import '../../ui/editor_bar.dart';
 import '../../ui/widgets.dart';
+import '../common/create_dialogs.dart';
 import '../common/object_info.dart';
 import '../common/object_picker.dart';
 import '../notebook/notebook_screen.dart';
+import 'minimap.dart';
 
 /// Die vier Arbeitsmodi des Canvas.
 enum BoardMode {
@@ -246,12 +248,23 @@ class _BoardScreenState extends State<BoardScreen> {
 
   // --- Oberfläche -------------------------------------------------------
 
+  GlobalKey<InkSurfaceState> _surfaceKey = GlobalKey();
+
+  /// Titel und Hintergrund ändern (auch nachträglich).
   Future<void> _rename() async {
-    final t = await askText(context,
-        title: 'Canvas umbenennen', initial: _board!.title);
-    if (t == null || t.trim().isEmpty) return;
-    _s.objects.rename(widget.boardId, t.trim());
-    setState(() => _board = _s.objects.get(widget.boardId));
+    await _surfaceKey.currentState?.flush();
+    if (!mounted) return;
+    final before = _board!;
+    await editBoard(context, before);
+    if (!mounted) return;
+    final after = _s.objects.get(widget.boardId);
+    setState(() {
+      _board = after;
+      // Neues Papier → Schreibfläche neu aufbauen (Farben, Raster).
+      if (after != null && after.paper != before.paper) {
+        _surfaceKey = GlobalKey();
+      }
+    });
   }
 
   Widget _overlay(BuildContext context, InkController c, PaperStyle paper) {
@@ -488,15 +501,19 @@ class _BoardScreenState extends State<BoardScreen> {
             children: [
               Positioned.fill(
                 child: InkSurface(
+                  key: _surfaceKey,
                   inkId: board.id,
                   paper: board.paper,
-                  toolbarInsets: const EdgeInsets.fromLTRB(12, 12, 12, 76),
                   showInkTools: _mode == BoardMode.write,
                   navBar: _nav,
                   onSaved: _changed,
                   onControllerReady: (c) {
                     _ink = c;
                     c.setDrawingEnabled(_mode == BoardMode.write);
+                    // Übersichtskarte braucht den Controller → einmal neu zeichnen.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) setState(() {});
+                    });
                   },
                   onBackgroundTap: _onBackgroundTap,
                   backgroundBuilder: (camera) =>
@@ -504,6 +521,47 @@ class _BoardScreenState extends State<BoardScreen> {
                   overlayBuilder: (context, c) => _overlay(context, c, paper),
                 ),
               ),
+              // Übersichtskarte, damit man nie die Orientierung verliert.
+              if (_ink != null)
+                Positioned(
+                  right: 16,
+                  bottom: 72,
+                  child: SafeArea(
+                    top: false,
+                    left: false,
+                    child: CanvasMinimap(controller: _ink!, nodes: _nodes),
+                  ),
+                ),
+              // "Zu deinen Inhalten", wenn nichts mehr im Bild ist.
+              if (_ink != null)
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 72,
+                  child: SafeArea(
+                    top: false,
+                    child: ListenableBuilder(
+                      listenable: _ink!.camera,
+                      builder: (context, _) {
+                        final c = _ink!;
+                        final content = CanvasMinimap.contentBounds(c, _nodes);
+                        final view = c.camera.viewport;
+                        if (content == null ||
+                            view.isEmpty ||
+                            c.camera.visibleWorldRect(view).overlaps(content)) {
+                          return const SizedBox.shrink();
+                        }
+                        return Center(
+                          child: FilledButton.icon(
+                            onPressed: _fitAll,
+                            icon: const Icon(Icons.my_location, size: 18),
+                            label: const Text('Zu deinen Inhalten'),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
               // Hinweis zum aktuellen Modus
               Positioned(
                 bottom: 16,

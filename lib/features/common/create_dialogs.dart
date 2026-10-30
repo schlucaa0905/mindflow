@@ -4,6 +4,7 @@ import '../../app/navigation.dart';
 import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
+import '../../storage/ink_recolor.dart';
 import '../documents/pdf_service.dart';
 import '../notebook/new_notebook_dialog.dart';
 
@@ -48,6 +49,108 @@ Future<void> editNotebook(BuildContext context, MfObject notebook) async {
   final data = {...notebook.data, ...draft.toData()};
   if (draft.category.isEmpty) data.remove('category');
   repo.setData(notebook.id, data);
+
+  // Papier von dunkel auf hell (oder umgekehrt)? Dann Schriftfarben anbieten
+  // anzupassen, sonst wäre z. B. weiße Schrift auf weißem Papier unsichtbar.
+  final wasDark = isDarkPaper(notebook.paper);
+  final nowDark = isDarkPaper(draft.paper);
+  if (wasDark != nowDark && context.mounted) {
+    final pages = repo.children(notebook.id);
+    await offerRecolor(context, [for (final p in pages) p.id], toDark: nowDark);
+  }
+}
+
+bool isDarkPaper(Paper p) =>
+    PaperStyle.of(p).sheet.computeLuminance() < 0.3;
+
+/// Fragt, ob die Schriftfarben ans neue Papier angepasst werden sollen.
+Future<void> offerRecolor(BuildContext context, List<String> inkIds,
+    {required bool toDark}) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Schriftfarben anpassen?'),
+      content: Text(toDark
+          ? 'Das Papier ist jetzt dunkel. Soll dunkle Schrift hell werden, '
+              'damit sie lesbar bleibt?'
+          : 'Das Papier ist jetzt hell. Soll helle Schrift dunkel werden, '
+              'damit sie lesbar bleibt?'),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('So lassen')),
+        FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Anpassen')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  for (final id in inkIds) {
+    await recolorInk(id, toDark: toDark);
+  }
+}
+
+/// Titel und Hintergrund eines Canvas ändern.
+Future<void> editBoard(BuildContext context, MfObject board) async {
+  final repo = Services.of(context).objects;
+  final titleCtrl = TextEditingController(text: board.title);
+  var paper = board.paper;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setState) => AlertDialog(
+        title: const Text('Canvas bearbeiten'),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: titleCtrl,
+                autofocus: true,
+                decoration: const InputDecoration(hintText: 'Titel'),
+              ),
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text('Hintergrund',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: ctx.mf.textMuted)),
+              ),
+              SegmentedButton<Paper>(
+                showSelectedIcon: false,
+                segments: [
+                  for (final p in Paper.values)
+                    ButtonSegment(value: p, label: Text(p.label)),
+                ],
+                selected: {paper},
+                onSelectionChanged: (s) => setState(() => paper = s.first),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Abbrechen')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Speichern')),
+        ],
+      ),
+    ),
+  );
+  if (ok != true) return;
+  final title = titleCtrl.text.trim();
+  if (title.isNotEmpty) repo.rename(board.id, title);
+  repo.setData(board.id, {...board.data, 'paper': paper.name});
+  if (isDarkPaper(board.paper) != isDarkPaper(paper) && context.mounted) {
+    await offerRecolor(context, [board.id], toDark: isDarkPaper(paper));
+  }
 }
 
 /// Neue Canvas-Fläche anlegen und direkt öffnen.

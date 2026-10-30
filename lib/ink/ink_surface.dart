@@ -11,15 +11,12 @@ import 'camera.dart';
 import 'ink_canvas_view.dart';
 import 'ink_controller.dart';
 import 'ink_session.dart';
-import 'ink_toolbar.dart';
 import 'tool_row.dart';
 
 /// Eine fertige Schreibfläche für ein Objekt: Zeichnen, Werkzeugleiste,
 /// automatisches Laden und Speichern. Notizbuch und Canvas nutzen dieselbe.
 ///
-/// Die Werkzeugleiste lässt sich am Griff verschieben: in die Nähe eines
-/// Randes ziehen dockt sie dort an (oben, unten, links, rechts), sonst
-/// schwebt sie frei. Die Position wird gemerkt.
+/// Oben sitzt die Kopfleiste (Navigation + Werkzeuge) wie bei Goodnotes.
 class InkSurface extends StatefulWidget {
   const InkSurface({
     super.key,
@@ -29,11 +26,10 @@ class InkSurface extends StatefulWidget {
     this.lockToFit = false,
     this.backgroundBuilder,
     this.overlayBuilder,
-    this.toolbarLeading = const [],
-    this.toolbarTrailing = const [],
     this.showInkTools = true,
-    this.toolbarInsets = const EdgeInsets.fromLTRB(12, 12, 12, 16),
     this.navBar,
+    this.onSwipe,
+    this.enterFrom = 0,
     this.drawBounds,
     this.onSaved,
     this.onControllerReady,
@@ -53,13 +49,14 @@ class InkSurface extends StatefulWidget {
 
   /// Zusätzliche Ebene über der Handschrift (z. B. Canvas-Karten).
   final Widget Function(BuildContext context, InkController c)? overlayBuilder;
-  final List<Widget> toolbarLeading;
-  final List<Widget> toolbarTrailing;
   final bool showInkTools;
 
-  /// Abstand der angedockten Leiste zu den Rändern (Platz für Kopfzeile,
-  /// Seitennavigation usw.).
-  final EdgeInsets toolbarInsets;
+  /// Mit einem Finger seitlich wischen: +1 = nächste, -1 = vorige Seite.
+  final ValueChanged<int>? onSwipe;
+
+  /// Beim Öffnen hereingleiten: 1 = von rechts (nächste Seite),
+  /// -1 = von links (vorige Seite), 0 = ohne Animation.
+  final int enterFrom;
 
   /// Navigationszeile oben (zurück, Titel, Seiten, Menü).
   final Widget Function(BuildContext context, InkController c)? navBar;
@@ -74,16 +71,16 @@ class InkSurface extends StatefulWidget {
   State<InkSurface> createState() => InkSurfaceState();
 }
 
-class InkSurfaceState extends State<InkSurface> {
+class InkSurfaceState extends State<InkSurface>
+    with SingleTickerProviderStateMixin {
   late final InkController controller;
+  late final AnimationController _enter = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 260),
+    value: widget.enterFrom == 0 ? 1 : 0,
+  );
   late final InkSession session;
   bool _fitted = false;
-  final GlobalKey _stackKey = GlobalKey();
-
-  /// Position der Leiste (linke obere Ecke) während des Ziehens.
-  Offset? _dragPos;
-
-  ToolSettings get _settings => controller.settings;
 
   @override
   void initState() {
@@ -103,6 +100,7 @@ class InkSurfaceState extends State<InkSurface> {
       if (mounted) setState(() {});
     });
     widget.onControllerReady?.call(controller);
+    if (widget.enterFrom != 0) _enter.forward();
   }
 
   /// Sofort speichern (z. B. vor dem Duplizieren einer Seite).
@@ -156,6 +154,7 @@ class InkSurfaceState extends State<InkSurface> {
 
   @override
   void dispose() {
+    _enter.dispose();
     final c = controller;
     session.close().whenComplete(c.dispose);
     super.dispose();
@@ -222,162 +221,6 @@ class InkSurfaceState extends State<InkSurface> {
     return KeyEventResult.handled;
   }
 
-  // --- Werkzeugleiste verschieben ----------------------------------------
-
-  Offset? _toLocal(Offset global) {
-    final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
-    return box?.globalToLocal(global);
-  }
-
-  void _dragStart(DragStartDetails d) {
-    final p = _toLocal(d.globalPosition);
-    if (p == null) return;
-    setState(() => _dragPos = p - const Offset(20, 20));
-  }
-
-  void _dragUpdate(DragUpdateDetails d) {
-    final p = _toLocal(d.globalPosition);
-    if (p == null) return;
-    setState(() => _dragPos = p - const Offset(20, 20));
-  }
-
-  void _dragEnd(Size size) {
-    final pos = _dragPos;
-    setState(() => _dragPos = null);
-    if (pos == null || size.isEmpty) return;
-    final pointer = pos + const Offset(20, 20);
-    const snap = 90.0;
-    final distances = <ToolbarDock, double>{
-      ToolbarDock.left: pointer.dx,
-      ToolbarDock.right: size.width - pointer.dx,
-      ToolbarDock.top: pointer.dy,
-      ToolbarDock.bottom: size.height - pointer.dy,
-    };
-    final nearest =
-        distances.entries.reduce((a, b) => a.value <= b.value ? a : b);
-    _settings.update(() {
-      if (nearest.value < snap) {
-        _settings.dock = nearest.key;
-      } else {
-        _settings.dock = ToolbarDock.floating;
-        _settings.floatX = (pos.dx / size.width).clamp(0.0, 1.0).toDouble();
-        _settings.floatY = (pos.dy / size.height).clamp(0.0, 1.0).toDouble();
-      }
-    });
-  }
-
-  /// Ist die Leiste fest oben eingebaut (Goodnotes-Stil)?
-  bool get _integrated => _settings.dock == ToolbarDock.top && _dragPos == null;
-
-  /// Frei verschiebbare Leiste in einer durchlässigen Ebene über der Fläche
-  /// (nur wenn sie nicht oben eingebaut ist).
-  Widget _toolbar(Size size) {
-    return Positioned.fill(
-      child: ListenableBuilder(
-        listenable: _settings,
-        builder: (context, _) => Stack(children: [
-          if (!_integrated) _positionedBar(size),
-        ]),
-      ),
-    );
-  }
-
-  void _detach() => _settings.update(() {
-        _settings.dock = ToolbarDock.floating;
-        _settings.floatX = 0.3;
-        _settings.floatY = 0.05;
-        _settings.collapsed = false;
-      });
-
-  Widget _positionedBar(Size size) {
-    return Builder(
-      builder: (context) {
-        final s = _settings;
-        final insets = widget.toolbarInsets;
-        final dragging = _dragPos != null;
-        final dock = dragging ? ToolbarDock.floating : s.dock;
-        final vertical = dock == ToolbarDock.left || dock == ToolbarDock.right;
-
-        final bar = InkToolbar(
-          controller: controller,
-          paper: widget.paper,
-          leading: widget.toolbarLeading,
-          trailing: widget.toolbarTrailing,
-          showInkTools: widget.showInkTools,
-          axis: vertical ? Axis.vertical : Axis.horizontal,
-          collapsed: s.collapsed,
-          onToggleCollapsed: () => s.update(() => s.collapsed = !s.collapsed),
-          onDragStart: _dragStart,
-          onDragUpdate: _dragUpdate,
-          onDragEnd: (_) => _dragEnd(size),
-        );
-
-        // Immer derselbe Aufbau (nur die Werte ändern sich), damit das
-        // Ziehen am Griff beim Umschalten nicht abbricht.
-        double? left, top, right, bottom;
-        var alignment = Alignment.center;
-        var safe = const EdgeInsets.all(0);
-        var maxWidth = double.infinity;
-        switch (dock) {
-          case ToolbarDock.top:
-            top = insets.top;
-            left = insets.left;
-            right = insets.right;
-            alignment = Alignment.topCenter;
-            safe = const EdgeInsets.only(top: 1);
-          case ToolbarDock.bottom:
-            bottom = insets.bottom;
-            left = insets.left;
-            right = insets.right;
-            alignment = Alignment.bottomCenter;
-            safe = const EdgeInsets.only(bottom: 1);
-          case ToolbarDock.left:
-            top = insets.top;
-            bottom = insets.bottom;
-            left = insets.left;
-            alignment = Alignment.centerLeft;
-            safe = const EdgeInsets.only(left: 1);
-          case ToolbarDock.right:
-            top = insets.top;
-            bottom = insets.bottom;
-            right = insets.right;
-            alignment = Alignment.centerRight;
-            safe = const EdgeInsets.only(right: 1);
-          case ToolbarDock.floating:
-            final maxX = math.max(8.0, size.width - 120);
-            final maxY = math.max(8.0, size.height - 64);
-            final pos = _dragPos ??
-                Offset(s.floatX * size.width, s.floatY * size.height);
-            left = pos.dx.clamp(8.0, maxX).toDouble();
-            top = pos.dy.clamp(8.0, maxY).toDouble();
-            alignment = Alignment.topLeft;
-            maxWidth = math.max(120.0, size.width - left - 8);
-        }
-        return Positioned(
-          left: left,
-          top: top,
-          right: right,
-          bottom: bottom,
-          child: SafeArea(
-            left: safe.left > 0,
-            top: safe.top > 0,
-            right: safe.right > 0,
-            bottom: safe.bottom > 0,
-            child: Align(
-              alignment: alignment,
-              widthFactor: 1,
-              heightFactor: 1,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: maxWidth),
-                child: Opacity(opacity: dragging ? 0.85 : 1, child: bar),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Focus(
@@ -385,21 +228,35 @@ class InkSurfaceState extends State<InkSurface> {
       onKeyEvent: _onKey,
       child: Column(
         children: [
-          ListenableBuilder(
-            listenable: _settings,
-            builder: (context, _) {
-              final nav = widget.navBar?.call(context, controller);
-              final tools = _integrated && widget.showInkTools
-                  ? ToolRow(controller: controller, onDetach: _detach)
-                  : null;
-              if (nav == null && tools == null) return const SizedBox.shrink();
-              return EditorTopBar(
-                nav: nav ?? const SizedBox.shrink(),
-                tools: tools,
-              );
-            },
+          // Kopfleiste im Goodnotes-Stil: Navigation + Werkzeuge, fest oben.
+          Builder(builder: (context) {
+            final nav = widget.navBar?.call(context, controller);
+            final tools = widget.showInkTools
+                ? ToolRow(controller: controller)
+                : null;
+            if (nav == null && tools == null) return const SizedBox.shrink();
+            return EditorTopBar(
+              nav: nav ?? const SizedBox.shrink(),
+              tools: tools,
+            );
+          }),
+          // ClipRect: Blatt und Striche dürfen nie über die Leiste malen.
+          Expanded(
+            child: ClipRect(
+              child: AnimatedBuilder(
+                animation: _enter,
+                builder: (context, child) {
+                  final t = Curves.easeOutCubic.transform(_enter.value);
+                  return FractionalTranslation(
+                    translation:
+                        Offset((1 - t) * 0.35 * widget.enterFrom, 0),
+                    child: Opacity(opacity: 0.3 + 0.7 * t, child: child),
+                  );
+                },
+                child: _surface(),
+              ),
+            ),
           ),
-          Expanded(child: _surface()),
         ],
       ),
     );
@@ -407,32 +264,37 @@ class InkSurfaceState extends State<InkSurface> {
 
   Widget _surface() {
     return LayoutBuilder(builder: (context, constraints) {
-        final size = constraints.biggest;
-        _onSize(size);
-        if (!_fitted && widget.fitRect != null && size.width > 0) {
-          _fitted = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) fit(size);
-          });
-        }
-        return Stack(
-          key: _stackKey,
-          children: [
-            Positioned.fill(
-              child: InkCanvasView(
-                controller: controller,
-                background: widget.backgroundBuilder?.call(controller.camera),
-                onBackgroundTap: widget.onBackgroundTap,
-              ),
+      final size = constraints.biggest;
+      _onSize(size);
+      if (!_fitted && widget.fitRect != null && size.width > 0) {
+        _fitted = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) fit(size);
+        });
+      }
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: InkCanvasView(
+              controller: controller,
+              background: widget.backgroundBuilder?.call(controller.camera),
+              onBackgroundTap: widget.onBackgroundTap,
+              onSwipe: widget.onSwipe == null ? null : _handleSwipe,
             ),
-            if (widget.overlayBuilder != null)
-              Positioned.fill(
-                  child: widget.overlayBuilder!(context, controller)),
-            if (!session.loaded)
-              const Center(child: CircularProgressIndicator()),
-            _toolbar(size),
-          ],
-        );
-      });
+          ),
+          if (widget.overlayBuilder != null)
+            Positioned.fill(child: widget.overlayBuilder!(context, controller)),
+          if (!session.loaded) const Center(child: CircularProgressIndicator()),
+        ],
+      );
+    });
+  }
+
+  /// Wischen blättert nur, wenn die Seite nicht stark vergrößert ist –
+  /// sonst ist es ganz normales Verschieben.
+  void _handleSwipe(int direction) {
+    final cam = controller.camera;
+    if (cam.scale > cam.minZoom * 1.6) return;
+    widget.onSwipe?.call(direction);
   }
 }

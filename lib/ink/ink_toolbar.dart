@@ -581,12 +581,14 @@ class HighlighterOptions extends StatelessWidget {
         children: [
           _WidthSlider(c: c, min: 4, max: 32, title: 'Breite'),
           _Toggle(
-            label: 'Gerade Linien',
+            label: 'Immer gerade Linien',
             value: c.settings.highlighterStraight,
             onChanged: (v) =>
                 c.settings.update(() => c.settings.highlighterStraight = v),
           ),
-          const _Hint('Textmarker liegt immer hinter der Schrift.'),
+          const _Hint('Tipp: Am Ende des Strichs kurz halten – dann wird die '
+              'Linie gerade und lässt sich noch ausrichten. Textmarker liegt '
+              'immer hinter der Schrift.'),
         ],
       ),
     );

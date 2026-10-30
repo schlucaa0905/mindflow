@@ -32,9 +32,14 @@ class InkCanvasView extends StatefulWidget {
     required this.controller,
     this.background,
     this.onBackgroundTap,
+    this.onSwipe,
   });
 
   final InkController controller;
+
+  /// Mit einem Finger schnell seitlich wischen: +1 = nach links gewischt
+  /// (nächste Seite), -1 = nach rechts gewischt (vorige Seite).
+  final ValueChanged<int>? onSwipe;
 
   /// Hintergrund (Seite mit Linien, Punktraster …). Standard: Punktraster.
   final CustomPainter? background;
@@ -67,6 +72,11 @@ class _InkCanvasViewState extends State<InkCanvasView>
   DateTime? _multiTapStart;
   int _multiTapMax = 0;
   bool _multiTapMoved = false;
+
+  // Wischen zum Blättern
+  int? _swipePointer;
+  Offset? _swipeStart;
+  DateTime? _swipeTime;
 
   // Lasso
   bool _movingSelection = false;
@@ -275,6 +285,13 @@ class _InkCanvasViewState extends State<InkCanvasView>
       return;
     }
     if (e.kind == PointerDeviceKind.touch) {
+      if (_touches.isEmpty) {
+        _swipePointer = e.pointer;
+        _swipeStart = e.localPosition;
+        _swipeTime = DateTime.now();
+      } else {
+        _swipePointer = null; // zwei Finger = zoomen, nicht blättern
+      }
       _touches[e.pointer] = e.localPosition;
       // Zweiter Finger, während ein Finger zeichnet: das war ein Zoom.
       if (_drawKind == PointerDeviceKind.touch) _endDraw(commit: false);
@@ -334,6 +351,18 @@ class _InkCanvasViewState extends State<InkCanvasView>
       widget.onBackgroundTap?.call(c.camera.toWorld(e.localPosition));
     }
     if (e.pointer == _tapPointer) _tapPointer = null;
+    if (e.pointer == _swipePointer) {
+      _swipePointer = null;
+      final start = _swipeStart, time = _swipeTime;
+      if (e is PointerUpEvent && start != null && time != null) {
+        final d = e.localPosition - start;
+        final quick =
+            DateTime.now().difference(time) < const Duration(milliseconds: 700);
+        if (quick && d.dx.abs() > 70 && d.dx.abs() > d.dy.abs() * 1.8) {
+          widget.onSwipe?.call(d.dx < 0 ? 1 : -1);
+        }
+      }
+    }
     if (e.pointer == _drawPointer) _endDraw(commit: commit);
     if (e.pointer == _panPointer) {
       _panPointer = null;

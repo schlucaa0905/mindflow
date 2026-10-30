@@ -23,6 +23,17 @@ Version 0.1 – Fundament, Notizbuch und Infinite Canvas.
 
 **Handschrift** (wie in Phase 0 getestet): Druck, Glättung, Textmarker, Radierer, Rückgängig, Handballen-Schutz, „Nur Stift“ schaltet sich automatisch ein, sobald ein Stift erkannt wird.
 
+## Neu in 0.5 – noch mehr Goodnotes
+
+- Kopfleiste ist fest oben und wird nie mehr von der Seite verdeckt.
+- Seiten wechseln durch Wischen mit einem Finger (Notizbuch und PDF), mit Gleit-Animation.
+- Textmarker: am Ende kurz halten → gerade Linie, das Ende lässt sich danach noch ausrichten.
+- Strichstärken: drei Plätze, deutlich unterschiedlich. Gewählten Platz nochmal antippen → Regler mit Vorschau, Wert wird gemerkt.
+- Füller etwas kräftiger, damit Stärken sichtbar unterschiedlich sind.
+- Aussehen nachträglich ändern: Notizbuch (Paletten-Symbol oben) und Canvas (Titel antippen). Beim Wechsel zwischen dunklem und hellem Papier werden die Schriftfarben auf Wunsch angepasst.
+- Canvas: Übersichtskarte unten rechts (antippen/ziehen zum Springen) und „Zu deinen Inhalten“, wenn nichts mehr im Bild ist.
+- Fehler behoben: erkannte Formen bekamen manchmal einen zusätzlichen Punkt am Ende.
+
 ## Neu in 0.4 – Goodnotes-Gefühl, Dokumente, Wissen
 
 **Editor (Notizbuch, PDF, Canvas)**

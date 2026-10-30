@@ -13,12 +13,9 @@ import 'ink_toolbar.dart';
 /// Werkzeug passt (Farben, Strichstärken, Lieblingsstifte, Radierer-Art …).
 /// Ein gewähltes Werkzeug nochmal antippen öffnet alle Optionen.
 class ToolRow extends StatelessWidget {
-  const ToolRow({super.key, required this.controller, this.onDetach});
+  const ToolRow({super.key, required this.controller});
 
   final InkController controller;
-
-  /// Leiste lösen (frei verschiebbar machen).
-  final VoidCallback? onDetach;
 
   @override
   Widget build(BuildContext context) {
@@ -39,14 +36,6 @@ class ToolRow extends StatelessWidget {
                   _ToolCapsule(c: c),
                   const SizedBox(width: 14),
                   ..._context(context, c),
-                  if (onDetach != null) ...[
-                    const SizedBox(width: 10),
-                    _RoundIcon(
-                      icon: Icons.open_in_new,
-                      tooltip: 'Leiste lösen und frei verschieben',
-                      onTap: onDetach,
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -112,7 +101,7 @@ class ToolRow extends StatelessWidget {
     final hl = c.tool == ToolMode.highlighter;
     final palette = hl ? c.highlighterPalette : c.palette;
     final active = hl ? c.highlighterColor : c.penColor;
-    final widths = hl ? const [8.0, 14.0, 22.0] : const [1.5, 2.5, 4.5];
+    final widths = c.widthSlots;
     return [
       if (!colorsOnly && c.tool == ToolMode.pen && c.settings.presets.isNotEmpty) ...[
         _Capsule(children: [
@@ -161,15 +150,110 @@ class ToolRow extends StatelessWidget {
       if (!colorsOnly) ...[
         const SizedBox(width: 10),
         _Capsule(children: [
-          for (final w in widths)
-            _SizeDot(
-              size: hl ? w / 3 : w * 1.6,
-              selected: c.activeWidth == w,
-              onTap: () => c.setWidth(w),
-            ),
+          for (var i = 0; i < widths.length; i++)
+            _WidthSlot(c: c, index: i, highlighter: hl),
         ]),
       ],
     ];
+  }
+}
+
+/// Ein Breiten-Platz. Antippen wählt ihn, nochmal antippen öffnet einen
+/// Regler, mit dem man genau diesen Platz frei einstellt (wie bei Goodnotes).
+class _WidthSlot extends StatelessWidget {
+  const _WidthSlot(
+      {required this.c, required this.index, required this.highlighter});
+
+  final InkController c;
+  final int index;
+  final bool highlighter;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    final w = c.widthSlots[index];
+    final selected = (c.activeWidth - w).abs() < 0.01;
+    final min = highlighter ? 2.0 : 0.3;
+    final max = highlighter ? 40.0 : 20.0;
+    return MenuAnchor(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(mf.surface),
+        shape: WidgetStatePropertyAll(RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: mf.border),
+        )),
+      ),
+      menuChildren: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+          child: SizedBox(
+            width: 280,
+            child: ListenableBuilder(
+              listenable: c,
+              builder: (context, _) {
+                final v = c.widthSlots[index].clamp(min, max).toDouble();
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Strichstärke: ${v.toStringAsFixed(1)}',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: mf.textMuted)),
+                    const SizedBox(height: 10),
+                    // Vorschau der Linie
+                    SizedBox(
+                      height: 40,
+                      child: Center(
+                        child: Container(
+                          height: (highlighter ? v : v * 1.2)
+                              .clamp(1.0, 36.0)
+                              .toDouble(),
+                          decoration: BoxDecoration(
+                            color: highlighter
+                                ? c.highlighterColor.withValues(alpha: 0.4)
+                                : c.penColor,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: mf.border.withValues(alpha: 0.5)),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Slider(
+                      value: v,
+                      min: min,
+                      max: max,
+                      onChanged: (x) => c.setWidthSlot(index,
+                          double.parse(x.toStringAsFixed(1))),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+      builder: (context, menu, _) => Tooltip(
+        message: selected
+            ? 'Nochmal tippen: Stärke genau einstellen'
+            : 'Strichstärke ${w.toStringAsFixed(1)}',
+        child: _SizeDot(
+          size: highlighter ? w / 2.5 : 3 + w * 1.8,
+          selected: selected,
+          onTap: () {
+            if (!selected) {
+              c.setWidth(w);
+            } else if (menu.isOpen) {
+              menu.close();
+            } else {
+              menu.open();
+            }
+          },
+        ),
+      ),
+    );
   }
 }
 

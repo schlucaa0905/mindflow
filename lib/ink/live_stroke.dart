@@ -73,6 +73,12 @@ class LiveStroke extends ChangeNotifier {
     points
       ..clear()
       ..addAll(pts);
+    // Endpunkt merken, damit finish() keinen alten Punkt anhängt.
+    if (pts.length >= 3) {
+      _sx = _rawX = pts[pts.length - 3];
+      _sy = _rawY = pts[pts.length - 2];
+      _sp = _rawP = pts[pts.length - 1];
+    }
     active = true;
     this.width = width;
     this.color = color;
