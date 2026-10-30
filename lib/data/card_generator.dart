@@ -40,10 +40,16 @@ List<CardDraft> cardsFromText(String text, {Set<String> skipFronts = const {}}) 
     final back = line.substring(cut + sepLen).trim();
     if (front.isEmpty || back.isEmpty) continue;
     if (front.length > 120) continue;
-    // URLs wie "https://…" nicht als Begriff deuten.
-    if (front.toLowerCase().startsWith('http')) continue;
+    // Internetadressen wie "https://…" nicht als Begriff deuten
+    // (der Begriff „HTTP“ selbst ist aber erlaubt).
+    if (_isUrl(front)) continue;
     if (!seen.add(front.toLowerCase())) continue;
     out.add((front: front, back: back));
   }
   return out;
+}
+
+bool _isUrl(String s) {
+  final t = s.toLowerCase();
+  return t.contains('://') || t.startsWith('www.');
 }

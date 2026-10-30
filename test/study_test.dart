@@ -106,6 +106,8 @@ TCP:verbindungsorientiert
 
     test('ignoriert URLs als Begriff und leere Seiten', () {
       expect(cardsFromText('https://x.de: test\n: leer\nleer:'), isEmpty);
+      expect(cardsFromText('www.x.de - Seite'), isEmpty);
+      expect(cardsFromText('HTTPS: verschlüsseltes HTTP').single.front, 'HTTPS');
     });
   });
 
