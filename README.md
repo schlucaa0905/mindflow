@@ -23,6 +23,19 @@ Version 0.1 – Fundament, Notizbuch und Infinite Canvas.
 
 **Handschrift** (wie in Phase 0 getestet): Druck, Glättung, Textmarker, Radierer, Rückgängig, Handballen-Schutz, „Nur Stift“ schaltet sich automatisch ein, sobald ein Stift erkannt wird.
 
+## Neu in 0.2
+
+- **Notizbuch anlegen:** Live-Vorschau, 14 Umschlagfarben, 6 Umschlag-Designs, Papier Dunkel/Weiß/Creme, Format A4 hoch/quer/quadratisch, 8 Vorlagen mit Mini-Vorschau (u. a. Cornell, Aufgaben, Kariert klein), Kategorie/Fach.
+- **Notizbuch-Übersicht:** echte Umschläge, Filter und Gruppen nach Kategorie, „Umschlag & Einstellungen“ nachträglich änderbar.
+- **Zoom im Notizbuch:** nur bis kurz unter Seitengröße heraus, bis 600 % hinein, Seite bleibt immer im Bild.
+- **Werkzeuge** (gewähltes Werkzeug nochmal antippen = Optionen):
+  - Stift: Füller (druckabhängig) oder Kugelschreiber (gleichmäßig), Strichstärke stufenlos
+  - Textmarker mit eigener Breite
+  - Radierer: ganze Striche oder nur berührte Stellen, Größe einstellbar, Kreis zeigt die Größe
+  - Lasso: einkreisen → verschieben, löschen, duplizieren, umfärben (Farbe antippen)
+  - Formen: Linie, Pfeil, Rechteck, Ellipse
+  - Eigene Farben über den Farbwähler
+
 ## Noch nicht drin (nächste Runden)
 
 Lasso, Formen, Textfelder und Bilder im Notizbuch · Karten mit Wissenseinträgen verknüpfen · Ordner · Cloud-Sync · Texterkennung für Handschrift-Suche.

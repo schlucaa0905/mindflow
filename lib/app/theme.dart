@@ -112,7 +112,14 @@ ThemeData buildTheme(Brightness brightness) {
 
 /// Papier einer Seite oder Arbeitsfläche – unabhängig vom App-Thema,
 /// damit Handschrift nie unsichtbar wird, wenn man das Thema wechselt.
-enum Paper { dark, light }
+enum Paper {
+  dark('Dunkel'),
+  light('Weiß'),
+  cream('Creme');
+
+  const Paper(this.label);
+  final String label;
+}
 
 class PaperStyle {
   const PaperStyle({
@@ -173,5 +180,28 @@ class PaperStyle {
     ],
   );
 
-  static PaperStyle of(Paper p) => p == Paper.dark ? dark : light;
+  static const cream = PaperStyle(
+    desk: Color(0xFFE4DFD3),
+    sheet: Color(0xFFF8F3E6),
+    line: Color(0xFFE0D8C5),
+    ink: [
+      Color(0xFF2B2A28),
+      Color(0xFF6D5DE7),
+      Color(0xFF1D4ED8),
+      Color(0xFF15803D),
+      Color(0xFFB91C1C),
+    ],
+    highlighter: [
+      Color(0xFFFACC15),
+      Color(0xFF4ADE80),
+      Color(0xFFF472B6),
+      Color(0xFF60A5FA),
+    ],
+  );
+
+  static PaperStyle of(Paper p) => switch (p) {
+        Paper.dark => dark,
+        Paper.light => light,
+        Paper.cream => cream,
+      };
 }

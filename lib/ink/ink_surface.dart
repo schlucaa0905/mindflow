@@ -18,6 +18,7 @@ class InkSurface extends StatefulWidget {
     required this.inkId,
     required this.paper,
     this.fitRect,
+    this.lockToFit = false,
     this.backgroundBuilder,
     this.overlayBuilder,
     this.toolbarLeading = const [],
@@ -35,6 +36,9 @@ class InkSurface extends StatefulWidget {
 
   /// Bereich, der beim Öffnen ins Bild gesetzt wird (z. B. die Seite).
   final Rect? fitRect;
+
+  /// true: [fitRect] bleibt immer im Bild, Herauszoomen ist begrenzt.
+  final bool lockToFit;
   final CustomPainter Function(Camera camera)? backgroundBuilder;
 
   /// Zusätzliche Ebene über der Handschrift (z. B. Canvas-Karten).
@@ -77,14 +81,44 @@ class InkSurfaceState extends State<InkSurface> {
   /// Sofort speichern (z. B. vor dem Duplizieren einer Seite).
   Future<void> flush() => session.saveNow();
 
+  double _fitScale(Size view, Rect r) => math.max(
+      0.05,
+      math.min(view.width / (r.width + 48), view.height / (r.height + 120)));
+
   void fit(Size view) {
     final r = widget.fitRect;
     if (r == null) return;
-    final scale = math.max(
-        0.05,
-        math.min(view.width / (r.width + 48),
-            view.height / (r.height + 120)));
+    final scale = _fitScale(view, r);
+    _applyZoomLimits(view);
     controller.camera.lookAt(r.center, scale, view);
+  }
+
+  /// Notizbuch: etwas weiter als "ganze Seite" herauszoomen, dann Schluss.
+  void _applyZoomLimits(Size view) {
+    final r = widget.fitRect;
+    if (!widget.lockToFit || r == null) return;
+    final cam = controller.camera;
+    cam.limit = r;
+    cam.minZoom = _fitScale(view, r) * 0.8;
+    cam.maxZoom = 6;
+  }
+
+  Size _lastSize = Size.zero;
+
+  void _onSize(Size size) {
+    if (size == _lastSize || size.isEmpty) return;
+    _lastSize = size;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _applyZoomLimits(size);
+      final cam = controller.camera;
+      cam.setViewport(size);
+      // Nach Drehen des Geräts nie kleiner als erlaubt.
+      if (cam.scale < cam.minZoom) {
+        cam.zoomAt(Offset(size.width / 2, size.height / 2),
+            cam.minZoom / cam.scale);
+      }
+    });
   }
 
   @override
@@ -98,6 +132,7 @@ class InkSurfaceState extends State<InkSurface> {
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
       final size = constraints.biggest;
+      _onSize(size);
       if (!_fitted && widget.fitRect != null && size.width > 0) {
         _fitted = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {

@@ -6,14 +6,43 @@ import '../app/theme.dart';
 
 enum ObjectType { notebook, page, board, knowledge, document, flashcard }
 
-/// Seitenvorlagen im Notizbuch.
+/// Seitenvorlagen im Notizbuch. Gespeichert wird der Name, nicht die Position.
 enum PageTemplate {
   blank('Blanko'),
   lined('Liniert'),
+  linedNarrow('Liniert eng'),
   grid('Kariert'),
-  dotted('Punktraster');
+  gridSmall('Kariert klein'),
+  dotted('Punktraster'),
+  cornell('Cornell'),
+  todo('Aufgaben');
 
   const PageTemplate(this.label);
+  final String label;
+}
+
+/// Seitenformat eines Notizbuchs.
+enum PageFormat {
+  a4Portrait('A4 hoch', 595, 842),
+  a4Landscape('A4 quer', 842, 595),
+  square('Quadratisch', 700, 700);
+
+  const PageFormat(this.label, this.width, this.height);
+  final String label;
+  final double width;
+  final double height;
+}
+
+/// Gestaltung eines Notizbuch-Umschlags.
+enum CoverStyle {
+  solid('Einfarbig'),
+  gradient('Verlauf'),
+  linen('Leinen'),
+  dots('Punkte'),
+  stripes('Streifen'),
+  grid('Raster');
+
+  const CoverStyle(this.label);
   final String label;
 }
 
@@ -65,13 +94,32 @@ class MfObject {
 
   String get displayTitle => title.trim().isEmpty ? 'Ohne Titel' : title;
 
-  Paper get paper =>
-      data['paper'] == 'light' ? Paper.light : Paper.dark;
+  Paper get paper => Paper.values.firstWhere(
+        (p) => p.name == data['paper'],
+        orElse: () => Paper.dark,
+      );
 
   PageTemplate get template => PageTemplate.values.firstWhere(
         (t) => t.name == data['template'],
         orElse: () => PageTemplate.lined,
       );
+
+  PageFormat get format => PageFormat.values.firstWhere(
+        (f) => f.name == data['format'],
+        orElse: () => PageFormat.a4Portrait,
+      );
+
+  CoverStyle get coverStyle => CoverStyle.values.firstWhere(
+        (s) => s.name == data['coverStyle'],
+        orElse: () => CoverStyle.solid,
+      );
+
+  int get coverColor => (data['cover'] as int?) ?? 0xFF8B7CF6;
+
+  /// Kategorie bzw. Fach, z. B. "Informatik". Leer = keine.
+  String get category => (data['category'] as String?)?.trim() ?? '';
+
+  String get description => (data['description'] as String?)?.trim() ?? '';
 }
 
 DateTime _date(int ms) => DateTime.fromMillisecondsSinceEpoch(ms);

@@ -29,6 +29,26 @@ class EraseStrokes extends InkAction {
   void revert(InkScene scene) => scene.setDeleted(strokes, false);
 }
 
+/// Striche wurden durch andere ersetzt (verschieben, umfärben,
+/// teilweise radieren). Rückgängig = Originale zurück, Ersatz weg.
+class ReplaceStrokes extends InkAction {
+  ReplaceStrokes({required this.removed, required this.added});
+  final List<Stroke> removed;
+  final List<Stroke> added;
+
+  @override
+  void apply(InkScene scene) {
+    scene.setDeleted(removed, true);
+    scene.setDeleted(added, false);
+  }
+
+  @override
+  void revert(InkScene scene) {
+    scene.setDeleted(added, true);
+    scene.setDeleted(removed, false);
+  }
+}
+
 class InkHistory {
   static const int limit = 300;
 

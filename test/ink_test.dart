@@ -115,5 +115,102 @@ void main() {
       final after = cam.toWorld(focal);
       expect((before - after).distance, lessThan(1e-9));
     });
+
+    test('Mit Grenzen: nicht weiter heraus als erlaubt, Seite bleibt im Bild',
+        () {
+      final cam = Camera()
+        ..limit = const Rect.fromLTWH(0, 0, 595, 842)
+        ..minZoom = 0.5
+        ..maxZoom = 6
+        ..setViewport(const Size(800, 1000));
+      cam.zoomAt(const Offset(400, 500), 0.01);
+      expect(cam.scale, 0.5);
+      // Seite ist kleiner als das Fenster → bleibt mittig, egal wie man schiebt.
+      cam.panBy(const Offset(5000, 5000));
+      final center = cam.toScreen(const Offset(595 / 2, 842 / 2));
+      expect((center - const Offset(400, 500)).distance, lessThan(1e-6));
+
+      // Hineingezoomt: Seite kann nicht ganz aus dem Bild geschoben werden.
+      cam.zoomAt(const Offset(400, 500), 6);
+      cam.panBy(const Offset(-100000, 0));
+      final rightEdge = cam.toScreen(const Offset(595, 0)).dx;
+      expect(rightEdge, greaterThanOrEqualTo(800 - cam.limitMargin - 1e-6));
+    });
+  });
+
+  group('Werkzeuge', () {
+    InkController withLine() {
+      final c = InkController(stylusOnly: true);
+      c.beginStroke(Offset.zero, 0.5);
+      for (var x = 2.0; x <= 100; x += 2) {
+        c.extendStroke(Offset(x, 0), 0.5);
+      }
+      c.commitStroke();
+      return c;
+    }
+
+    test('Bereichsradierer teilt einen Strich in zwei Teile', () {
+      final c = withLine()..eraserMode = EraserMode.area;
+      c.eraseAt(const Offset(50, 0), 5);
+      c.endErase();
+      final alive = c.scene.strokes.where((s) => !s.deleted).toList();
+      expect(alive.length, 2);
+      // Rückgängig stellt den Originalstrich wieder her.
+      c.undo();
+      final restored = c.scene.strokes.where((s) => !s.deleted).toList();
+      expect(restored.length, 1);
+      expect(restored.single.points.length, greaterThan(alive.first.points.length));
+    });
+
+    test('Lasso wählt aus, Verschieben ist rückgängig machbar', () {
+      final c = withLine()..setTool(ToolMode.lasso);
+      c.beginLasso(const Offset(-10, -10));
+      c.extendLasso(const Offset(120, -10));
+      c.extendLasso(const Offset(120, 10));
+      c.extendLasso(const Offset(-10, 10));
+      c.endLasso();
+      expect(c.selection.length, 1);
+      final before = c.selection.single.bounds;
+
+      c.beginMoveSelection(const Offset(50, 0));
+      c.moveSelection(const Offset(50, 200));
+      c.endMoveSelection();
+      final moved = c.scene.strokes.where((s) => !s.deleted).single;
+      expect(moved.bounds.top, closeTo(before.top + 200, 0.01));
+
+      c.undo();
+      final back = c.scene.strokes.where((s) => !s.deleted).single;
+      expect(back.bounds.top, closeTo(before.top, 0.01));
+    });
+
+    test('Umfärben und Duplizieren', () {
+      final c = withLine()..setTool(ToolMode.lasso);
+      c.selection = c.scene.strokes.where((s) => !s.deleted).toList();
+      c.recolorSelection(const Color(0xFFFF0000));
+      expect(c.scene.strokes.where((s) => !s.deleted).single.color, 0xFFFF0000);
+      c.duplicateSelection();
+      expect(c.scene.aliveCount, 2);
+    });
+
+    test('Formen erzeugen Punkte', () {
+      final rect = InkController.shapePoints(
+          ShapeKind.rectangle, Offset.zero, const Offset(10, 20), 1);
+      expect(rect.length, 5 * 3);
+      final ellipse = InkController.shapePoints(
+          ShapeKind.ellipse, Offset.zero, const Offset(10, 20), 1);
+      expect(ellipse.length, 73 * 3);
+      final arrow = InkController.shapePoints(
+          ShapeKind.arrow, Offset.zero, const Offset(100, 0), 1);
+      expect(arrow.length, 5 * 3);
+    });
+
+    test('Kugelschreiber-Striche überleben Speichern und Laden', () {
+      final c = InkController(stylusOnly: true)..setPenType(PenType.ballpoint);
+      c.beginStroke(Offset.zero, 0.5);
+      c.extendStroke(const Offset(40, 0), 0.5);
+      c.commitStroke();
+      final out = decodeInk(encodeInk(c.scene.strokes.toList()));
+      expect(out.single.tool, InkTool.ballpoint);
+    });
   });
 }

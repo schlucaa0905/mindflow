@@ -67,6 +67,19 @@ class LiveStroke extends ChangeNotifier {
 
   void cancel() => _clear();
 
+  /// Ersetzt die Punkte komplett (für Formen, die sich beim Ziehen ändern).
+  void setPoints(List<double> pts,
+      {required double width, required Color color, required InkTool tool}) {
+    points
+      ..clear()
+      ..addAll(pts);
+    active = true;
+    this.width = width;
+    this.color = color;
+    this.tool = tool;
+    notifyListeners();
+  }
+
   void _clear() {
     points.clear();
     active = false;

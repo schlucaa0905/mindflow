@@ -5,6 +5,8 @@ import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
 import '../../ui/widgets.dart';
+import '../notebook/notebook_cover.dart';
+import 'create_dialogs.dart';
 
 /// Karte für Notizbuch oder Canvas in Übersichten.
 class ObjectCard extends StatelessWidget {
@@ -14,14 +16,100 @@ class ObjectCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mf = context.mf;
-    final repo = Services.of(context).objects;
     final o = object;
-    final isNotebook = o.type == ObjectType.notebook;
-    final paper = PaperStyle.of(o.paper);
-    final cover = Color((o.data['cover'] as int?) ?? 0xFF8B7CF6);
-    final pages = isNotebook ? repo.childCount(o.id) : 0;
+    return o.type == ObjectType.notebook
+        ? _NotebookCard(o)
+        : _BoardCard(o);
+  }
+}
 
+class _NotebookCard extends StatelessWidget {
+  const _NotebookCard(this.o);
+  final MfObject o;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    final pages = Services.of(context).objects.childCount(o.id);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: GestureDetector(
+            onTap: () => openObject(context, o),
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: 0.74,
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(boxShadow: [
+                      BoxShadow(
+                          color: Color(0x33000000),
+                          blurRadius: 14,
+                          offset: Offset(0, 8)),
+                    ]),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        NotebookCover(
+                          color: Color(o.coverColor),
+                          style: o.coverStyle,
+                          title: o.displayTitle,
+                          category: o.category,
+                          compact: true,
+                        ),
+                        if (o.pinned)
+                          const Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Icon(Icons.push_pin,
+                                size: 16, color: Colors.white),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(o.displayTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600, color: mf.text)),
+                  Text(
+                    '$pages ${pages == 1 ? 'Seite' : 'Seiten'} · ${relativeTime(o.updatedAt)}',
+                    maxLines: 1,
+                    style: TextStyle(fontSize: 12, color: mf.textMuted),
+                  ),
+                ],
+              ),
+            ),
+            ObjectMenu(object: o),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _BoardCard extends StatelessWidget {
+  const _BoardCard(this.o);
+  final MfObject o;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    final paper = PaperStyle.of(o.paper);
     return Material(
       color: mf.surface,
       shape: RoundedRectangleBorder(
@@ -36,24 +124,12 @@ class ObjectCard extends StatelessWidget {
           children: [
             Expanded(
               child: Container(
-                color: paper.desk,
+                color: paper.sheet,
                 child: Stack(
                   children: [
-                    if (isNotebook)
-                      Positioned(
-                          left: 0,
-                          top: 0,
-                          bottom: 0,
-                          width: 10,
-                          child: ColoredBox(color: cover)),
                     Center(
-                      child: Icon(
-                        isNotebook
-                            ? Icons.menu_book_outlined
-                            : Icons.bubble_chart_outlined,
-                        size: 36,
-                        color: isNotebook ? cover : mf.accent,
-                      ),
+                      child: Icon(Icons.bubble_chart_outlined,
+                          size: 36, color: mf.accent),
                     ),
                     if (o.pinned)
                       Positioned(
@@ -79,15 +155,10 @@ class ObjectCard extends StatelessWidget {
                             style: TextStyle(
                                 fontWeight: FontWeight.w600, color: mf.text)),
                         const SizedBox(height: 2),
-                        Text(
-                          [
-                            if (isNotebook)
-                              '$pages ${pages == 1 ? 'Seite' : 'Seiten'}',
-                            relativeTime(o.updatedAt),
-                          ].join(' · '),
-                          maxLines: 1,
-                          style: TextStyle(fontSize: 12, color: mf.textMuted),
-                        ),
+                        Text('Canvas · ${relativeTime(o.updatedAt)}',
+                            maxLines: 1,
+                            style:
+                                TextStyle(fontSize: 12, color: mf.textMuted)),
                       ],
                     ),
                   ),
@@ -112,11 +183,14 @@ class ObjectMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final repo = Services.of(context).objects;
     final o = object;
+    final isNotebook = o.type == ObjectType.notebook;
     return PopupMenuButton<String>(
       tooltip: 'Mehr',
       icon: Icon(Icons.more_horiz, color: context.mf.textMuted),
       onSelected: (v) async {
         switch (v) {
+          case 'edit':
+            await editNotebook(context, o);
           case 'rename':
             final t = await askText(context,
                 title: 'Umbenennen', initial: o.title);
@@ -134,7 +208,11 @@ class ObjectMenu extends StatelessWidget {
         }
       },
       itemBuilder: (_) => [
-        const PopupMenuItem(value: 'rename', child: Text('Umbenennen')),
+        if (isNotebook)
+          const PopupMenuItem(
+              value: 'edit', child: Text('Umschlag & Einstellungen'))
+        else
+          const PopupMenuItem(value: 'rename', child: Text('Umbenennen')),
         PopupMenuItem(
             value: 'pin', child: Text(o.pinned ? 'Lösen' : 'Anheften')),
         const PopupMenuItem(value: 'archive', child: Text('Archivieren')),
@@ -163,10 +241,10 @@ class ObjectGrid extends StatelessWidget {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 240,
-        mainAxisExtent: 190,
-        crossAxisSpacing: 14,
-        mainAxisSpacing: 14,
+        maxCrossAxisExtent: 200,
+        mainAxisExtent: 250,
+        crossAxisSpacing: 18,
+        mainAxisSpacing: 22,
       ),
       itemCount: objects.length,
       itemBuilder: (_, i) => ObjectCard(object: objects[i]),

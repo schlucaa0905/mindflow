@@ -61,6 +61,15 @@ class ObjectRepository extends ChangeNotifier {
       'SELECT * FROM objects WHERE deleted_at IS NOT NULL '
       "AND type IN ('notebook','board') ORDER BY deleted_at DESC");
 
+  /// Alle vergebenen Kategorien eines Typs, alphabetisch.
+  List<String> categories(ObjectType type) {
+    final set = <String>{};
+    for (final o in byType(type)) {
+      if (o.category.isNotEmpty) set.add(o.category);
+    }
+    return set.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  }
+
   List<MfObject> search(String text) {
     final q = text.trim();
     if (q.isEmpty) return [];

@@ -36,6 +36,14 @@ Paint paintFor(InkTool tool, Color color, double width) {
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
         ..color = color.withValues(alpha: 0.35);
+    case InkTool.ballpoint:
+      // Gleichmäßige Breite, etwa wie ein Füller mit mittlerem Druck.
+      p
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = width * 0.7
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = color;
   }
   return p;
 }
@@ -45,6 +53,7 @@ Path buildStrokePath(List<double> pts, double width, InkTool tool) {
     case InkTool.pen:
       return _penOutline(pts, width);
     case InkTool.highlighter:
+    case InkTool.ballpoint:
       return _polyline(pts);
   }
 }

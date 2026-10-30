@@ -6,6 +6,7 @@ import '../../data/models.dart';
 import '../../ink/ink_surface.dart';
 import '../../storage/ink_store.dart';
 import '../../ui/widgets.dart';
+import '../common/create_dialogs.dart';
 import 'page_painter.dart';
 
 /// Ein geöffnetes Notizbuch: eine Seite zur Zeit, Blättern, Seitenverwaltung.
@@ -127,12 +128,16 @@ class _NotebookScreenState extends State<NotebookScreen> {
     setState(_reload);
   }
 
+  /// Titel, Umschlag, Papier, Format, Kategorie ändern.
   Future<void> _rename() async {
-    final t = await askText(context,
-        title: 'Notizbuch umbenennen', initial: _notebook!.title);
-    if (t == null || t.trim().isEmpty) return;
-    _s.objects.rename(widget.notebookId, t.trim());
-    setState(_reload);
+    await _surfaceKey.currentState?.flush();
+    if (!mounted) return;
+    await editNotebook(context, _notebook!);
+    if (!mounted) return;
+    setState(() {
+      _reload();
+      _surfaceKey = GlobalKey();
+    });
   }
 
   void _showPages() {
@@ -272,6 +277,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     }
     final paper = PaperStyle.of(nb.paper);
     final page = _page;
+    final pageRect = pageRectFor(nb.format);
     final mf = context.mf;
 
     return Scaffold(
@@ -283,13 +289,15 @@ class _NotebookScreenState extends State<NotebookScreen> {
               key: _surfaceKey,
               inkId: page.id,
               paper: nb.paper,
-              fitRect: kPageRect,
+              fitRect: pageRect,
+              lockToFit: true,
               toolbarTop: 64,
               onSaved: () => _s.objects.touch(nb.id),
               backgroundBuilder: (camera) => PagePainter(
                 camera: camera,
                 paper: paper,
                 template: page.template,
+                page: pageRect,
               ),
             ),
           ),
@@ -329,6 +337,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                         color: mf.text)),
                               ),
                             ),
+                          ),
+                          ToolButton(
+                            icon: Icons.tune,
+                            label: 'Umschlag, Papier & Format',
+                            onTap: _rename,
                           ),
                         ],
                       ),

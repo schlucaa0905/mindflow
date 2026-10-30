@@ -4,125 +4,49 @@ import '../../app/navigation.dart';
 import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
-
-/// Farben für Notizbuch-Umschläge.
-const kCoverColors = <int>[
-  0xFF8B7CF6,
-  0xFF5AA9FF,
-  0xFF4ADE80,
-  0xFFF59E0B,
-  0xFFF472B6,
-  0xFF94A3B8,
-];
+import '../notebook/new_notebook_dialog.dart';
 
 Paper _defaultPaper(BuildContext context) =>
     Theme.of(context).brightness == Brightness.dark ? Paper.dark : Paper.light;
 
 /// Neues Notizbuch anlegen und direkt öffnen.
 Future<void> createNotebook(BuildContext context) async {
-  final services = Services.of(context);
-  final titleCtrl = TextEditingController();
-  var paper = _defaultPaper(context);
-  var template = PageTemplate.lined;
-  var cover = kCoverColors[
-      services.objects.byType(ObjectType.notebook).length % kCoverColors.length];
-
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setState) {
-        final mf = ctx.mf;
-        return AlertDialog(
-          title: const Text('Neues Notizbuch'),
-          content: SizedBox(
-            width: 460,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: titleCtrl,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                      hintText: 'Titel, z. B. Netzwerktechnik'),
-                  onSubmitted: (_) => Navigator.pop(ctx, true),
-                ),
-                const SizedBox(height: 20),
-                _Label('Umschlag', mf),
-                Wrap(
-                  spacing: 10,
-                  children: [
-                    for (final c in kCoverColors)
-                      GestureDetector(
-                        onTap: () => setState(() => cover = c),
-                        child: Container(
-                          width: 30,
-                          height: 30,
-                          decoration: BoxDecoration(
-                            color: Color(c),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                                color: cover == c ? mf.text : Colors.transparent,
-                                width: 2.5),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                _Label('Papier', mf),
-                SegmentedButton<Paper>(
-                  segments: const [
-                    ButtonSegment(value: Paper.dark, label: Text('Dunkel')),
-                    ButtonSegment(value: Paper.light, label: Text('Hell')),
-                  ],
-                  selected: {paper},
-                  onSelectionChanged: (s) => setState(() => paper = s.first),
-                ),
-                const SizedBox(height: 20),
-                _Label('Vorlage für neue Seiten', mf),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final t in PageTemplate.values)
-                      ChoiceChip(
-                        label: Text(t.label),
-                        selected: template == t,
-                        onSelected: (_) => setState(() => template = t),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Abbrechen')),
-            FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Erstellen')),
-          ],
-        );
-      },
-    ),
+  final repo = Services.of(context).objects;
+  final count = repo.byType(ObjectType.notebook).length;
+  final draft = await showNotebookDialog(
+    context,
+    categories: repo.categories(ObjectType.notebook),
+    suggestedCover: kCoverColors[count % kCoverColors.length],
   );
-  if (ok != true || !context.mounted) return;
+  if (draft == null || !context.mounted) return;
 
-  final repo = services.objects;
-  final title = titleCtrl.text.trim().isEmpty ? 'Neues Notizbuch' : titleCtrl.text.trim();
   final nb = repo.create(
     type: ObjectType.notebook,
-    title: title,
-    data: {'paper': paper.name, 'cover': cover, 'template': template.name},
+    title: draft.title,
+    data: draft.toData(),
   );
   repo.create(
     type: ObjectType.page,
     parentId: nb.id,
-    data: {'template': template.name},
+    data: {'template': draft.template.name},
   );
   await openObject(context, nb);
+}
+
+/// Umschlag, Kategorie, Papier usw. eines Notizbuchs ändern.
+Future<void> editNotebook(BuildContext context, MfObject notebook) async {
+  final repo = Services.of(context).objects;
+  final draft = await showNotebookDialog(
+    context,
+    categories: repo.categories(ObjectType.notebook),
+    suggestedCover: notebook.coverColor,
+    initial: notebook,
+  );
+  if (draft == null) return;
+  repo.rename(notebook.id, draft.title);
+  final data = {...notebook.data, ...draft.toData()};
+  if (draft.category.isEmpty) data.remove('category');
+  repo.setData(notebook.id, data);
 }
 
 /// Neue Canvas-Fläche anlegen und direkt öffnen.
@@ -150,11 +74,19 @@ Future<void> createBoard(BuildContext context) async {
                 onSubmitted: (_) => Navigator.pop(ctx, true),
               ),
               const SizedBox(height: 20),
-              _Label('Hintergrund', ctx.mf),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text('Hintergrund',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: ctx.mf.textMuted)),
+              ),
               SegmentedButton<Paper>(
-                segments: const [
-                  ButtonSegment(value: Paper.dark, label: Text('Dunkel')),
-                  ButtonSegment(value: Paper.light, label: Text('Hell')),
+                showSelectedIcon: false,
+                segments: [
+                  for (final p in Paper.values)
+                    ButtonSegment(value: p, label: Text(p.label)),
                 ],
                 selected: {paper},
                 onSelectionChanged: (s) => setState(() => paper = s.first),
@@ -175,7 +107,8 @@ Future<void> createBoard(BuildContext context) async {
   );
   if (ok != true || !context.mounted) return;
 
-  final title = titleCtrl.text.trim().isEmpty ? 'Neuer Canvas' : titleCtrl.text.trim();
+  final title =
+      titleCtrl.text.trim().isEmpty ? 'Neuer Canvas' : titleCtrl.text.trim();
   final board = services.objects.create(
     type: ObjectType.board,
     title: title,
@@ -213,20 +146,4 @@ Future<void> showCreateMenu(BuildContext context) async {
   if (!context.mounted) return;
   if (choice == 'notebook') await createNotebook(context);
   if (choice == 'board') await createBoard(context);
-}
-
-class _Label extends StatelessWidget {
-  const _Label(this.text, this.mf);
-  final String text;
-  final MfPalette mf;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(text,
-            style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: mf.textMuted)),
-      );
 }

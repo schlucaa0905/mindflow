@@ -4,6 +4,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../app/theme.dart';
+import '../ui/widgets.dart';
 import 'camera.dart';
 import 'ink_controller.dart';
 import 'ink_scene.dart';
@@ -85,34 +87,87 @@ class _InkCanvasViewState extends State<InkCanvasView> {
 
   // --- Zeichnen / Radieren ----------------------------------------------
 
+  bool _movingSelection = false;
+
   void _startDraw(PointerEvent e) {
     final world = c.camera.toWorld(e.localPosition);
-    if (c.tool == ToolMode.eraser) {
-      c.eraseAt(world, _eraserScreenRadius);
-    } else {
-      c.beginStroke(world, _pressure(e));
+    switch (c.tool) {
+      case ToolMode.eraser:
+        _eraserPos.value = e.localPosition;
+        c.eraseAt(world, c.eraserSize);
+      case ToolMode.lasso:
+        if (c.isInsideSelection(world)) {
+          _movingSelection = true;
+          c.beginMoveSelection(world);
+        } else {
+          _movingSelection = false;
+          c.beginLasso(world);
+        }
+      case ToolMode.shape:
+        c.beginShape(world);
+      case ToolMode.pen:
+      case ToolMode.highlighter:
+        c.beginStroke(world, _pressure(e));
     }
   }
 
   void _moveDraw(PointerEvent e) {
     final world = c.camera.toWorld(e.localPosition);
-    if (c.tool == ToolMode.eraser) {
-      c.eraseAt(world, _eraserScreenRadius);
-    } else {
-      c.extendStroke(world, _pressure(e));
+    switch (c.tool) {
+      case ToolMode.eraser:
+        _eraserPos.value = e.localPosition;
+        c.eraseAt(world, c.eraserSize);
+      case ToolMode.lasso:
+        if (_movingSelection) {
+          c.moveSelection(world);
+        } else {
+          c.extendLasso(world);
+        }
+      case ToolMode.shape:
+        c.updateShape(world);
+      case ToolMode.pen:
+      case ToolMode.highlighter:
+        c.extendStroke(world, _pressure(e));
     }
   }
 
   void _endDraw({required bool commit}) {
-    if (c.tool == ToolMode.eraser) {
-      c.endErase();
-    } else if (commit) {
-      c.commitStroke();
-    } else {
-      c.cancelStroke();
+    switch (c.tool) {
+      case ToolMode.eraser:
+        _eraserPos.value = null;
+        c.endErase();
+      case ToolMode.lasso:
+        if (_movingSelection) {
+          c.endMoveSelection();
+        } else {
+          c.endLasso();
+        }
+        _movingSelection = false;
+      case ToolMode.shape:
+        if (commit) {
+          c.commitShape();
+        } else {
+          c.cancelStroke();
+        }
+      case ToolMode.pen:
+      case ToolMode.highlighter:
+        if (commit) {
+          c.commitStroke();
+        } else {
+          c.cancelStroke();
+        }
     }
     _drawPointer = null;
     _drawKind = null;
+  }
+
+  /// Position des Radierers auf dem Bildschirm (für den Kreis).
+  final ValueNotifier<Offset?> _eraserPos = ValueNotifier(null);
+
+  @override
+  void dispose() {
+    _eraserPos.dispose();
+    super.dispose();
   }
 
   // --- Ereignisse -------------------------------------------------------
@@ -216,6 +271,18 @@ class _InkCanvasViewState extends State<InkCanvasView> {
 
   @override
   Widget build(BuildContext context) {
+    // Die Auswahl-Aktionen liegen außerhalb des Listeners, damit ein Tippen
+    // auf einen Knopf nicht gleichzeitig als Lasso-Strich zählt.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _input(context),
+        _SelectionActions(controller: c),
+      ],
+    );
+  }
+
+  Widget _input(BuildContext context) {
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: _onDown,
@@ -247,8 +314,168 @@ class _InkCanvasViewState extends State<InkCanvasView> {
           RepaintBoundary(
             child: CustomPaint(painter: _LivePainter(c.live, c.camera)),
           ),
+          RepaintBoundary(
+            child: CustomPaint(
+              painter: _SelectionPainter(c, context.mf.accent),
+            ),
+          ),
+          IgnorePointer(
+            child: CustomPaint(
+              painter: _EraserPainter(_eraserPos, c, context.mf.textMuted),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+/// Lasso-Linie, Auswahlrahmen und die mitwandernde Vorschau beim Verschieben.
+class _SelectionPainter extends CustomPainter {
+  _SelectionPainter(this.c, this.accent)
+      : super(
+            repaint: Listenable.merge(
+                [c, c.camera, c.lassoPath, c.dragOffset, c.scene]));
+
+  final InkController c;
+  final Color accent;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cam = c.camera;
+    final path = c.lassoPath.value;
+    if (path.length > 1) {
+      final p = Path()..moveTo(cam.toScreen(path.first).dx, cam.toScreen(path.first).dy);
+      for (final w in path.skip(1)) {
+        final s = cam.toScreen(w);
+        p.lineTo(s.dx, s.dy);
+      }
+      canvas.drawPath(
+          p,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5
+            ..color = accent);
+      canvas.drawPath(
+          p..close(), Paint()..color = accent.withValues(alpha: 0.08));
+    }
+
+    final bounds = c.selectionBounds;
+    if (bounds == null) return;
+    final d = c.dragOffset.value;
+    if (c.draggingSelection) {
+      canvas.save();
+      canvas.translate(cam.offset.dx, cam.offset.dy);
+      canvas.scale(cam.scale);
+      canvas.translate(d.dx, d.dy);
+      for (final s in c.selection) {
+        paintStroke(canvas, s);
+      }
+      canvas.restore();
+    }
+    final r = Rect.fromPoints(cam.toScreen(bounds.topLeft + d),
+            cam.toScreen(bounds.bottomRight + d))
+        .inflate(6);
+    final rr = RRect.fromRectAndRadius(r, const Radius.circular(8));
+    canvas.drawRRect(rr, Paint()..color = accent.withValues(alpha: 0.06));
+    canvas.drawRRect(
+        rr,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = accent);
+  }
+
+  @override
+  bool shouldRepaint(_SelectionPainter old) => true;
+}
+
+/// Kreis, der zeigt, wie groß der Radierer ist.
+class _EraserPainter extends CustomPainter {
+  _EraserPainter(this.pos, this.c, this.color) : super(repaint: pos);
+
+  final ValueNotifier<Offset?> pos;
+  final InkController c;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = pos.value;
+    if (p == null) return;
+    canvas.drawCircle(
+        p,
+        c.eraserSize,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_EraserPainter old) => true;
+}
+
+/// Aktionen für die Lasso-Auswahl, schwebend über der Auswahl.
+class _SelectionActions extends StatelessWidget {
+  const _SelectionActions({required this.controller});
+
+  final InkController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    return ListenableBuilder(
+      listenable: Listenable.merge([c, c.camera]),
+      builder: (context, _) {
+        final b = c.selectionBounds;
+        if (b == null || c.draggingSelection || c.tool != ToolMode.lasso) {
+          return const SizedBox.shrink();
+        }
+        final top = c.camera.toScreen(b.topCenter);
+        final size = MediaQuery.sizeOf(context);
+        const panelWidth = 220.0;
+        final left = (top.dx - panelWidth / 2)
+            .clamp(8.0, math.max(8.0, size.width - panelWidth - 8))
+            .toDouble();
+        final y = top.dy - 64;
+        return Stack(
+          children: [
+            Positioned(
+              left: left,
+              top: y < 8 ? c.camera.toScreen(b.bottomCenter).dy + 12 : y,
+              child: FloatingPanel(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ToolButton(
+                      icon: Icons.copy_all_outlined,
+                      label: 'Duplizieren',
+                      onTap: c.duplicateSelection,
+                    ),
+                    ToolButton(
+                      icon: Icons.delete_outline,
+                      label: 'Löschen',
+                      danger: true,
+                      onTap: c.deleteSelection,
+                    ),
+                    ToolButton(
+                      icon: Icons.close,
+                      label: 'Auswahl aufheben',
+                      onTap: c.clearSelection,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Text('${c.selection.length}',
+                          style: TextStyle(
+                              fontSize: 12, color: context.mf.textMuted)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
