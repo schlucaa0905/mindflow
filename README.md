@@ -19,9 +19,32 @@ Version 0.1 – Fundament, Notizbuch und Infinite Canvas.
 - **Canvas:** Unendliche Fläche mit vier Modi: Schreiben, Auswählen, Verbinden, Navigieren. Textkarten anlegen (auch per Doppeltippen), verschieben, bearbeiten, löschen. Verbindungen ziehen; dieselben Karten nochmal verbinden löst die Verbindung. Alles wird dauerhaft gespeichert.
 - **Suche:** Titel von Notizbüchern und Canvas sowie der Text aller Karten. Ein Treffer springt direkt zur Karte.
 - **Archiv:** Archivierte Inhalte und Papierkorb, jeweils mit „Wiederherstellen“.
-- **Dokumente, Wissen, Lernen:** Platzhalter mit Plan. Kommen in Phase 4, 5 und 7.
+- **Lernen:** Platzhalter mit Plan, kommt in Phase 7.
 
 **Handschrift** (wie in Phase 0 getestet): Druck, Glättung, Textmarker, Radierer, Rückgängig, Handballen-Schutz, „Nur Stift“ schaltet sich automatisch ein, sobald ein Stift erkannt wird.
+
+## Neu in 0.4 – Goodnotes-Gefühl, Dokumente, Wissen
+
+**Editor (Notizbuch, PDF, Canvas)**
+- Neue Kopfleiste im Goodnotes-Stil: oben Navigation (zurück, Titel, Seiten „‹ 3 / 12 ›“, Rückgängig/Wiederholen, Seitenübersicht, Seite hinzufügen, Menü „…“), darunter die Werkzeuge.
+- Modernes Design: Werkzeuge in einer Kapsel, gewähltes Werkzeug farbig gefüllt, Farben als Kreise, Strichstärken als Punkte.
+- Leiste lösbar (Symbol ganz rechts oder „…“ → „Werkzeugleiste frei verschiebbar“), zurück per Ziehen an den oberen Rand.
+- Geschrieben wird nur noch auf dem Blatt. Außerhalb verschiebt der Stift die Ansicht.
+- Seitenübersicht mit echten Vorschaubildern, Seiten sortieren, duplizieren, löschen, Vorlage ändern.
+- Notizbuch als PDF teilen/speichern.
+- Lasso: Schon ein kleiner Teil eines Strichs genügt (wie Goodnotes 6).
+
+**Dokumente (PDF)**
+- PDF importieren (Startseite, „Neu“ oder Bereich Dokumente), Seiten lesen, mit allen Werkzeugen hineinschreiben und markieren.
+- Seitenübersicht, Wissenseintrag zum Dokument, mit Notizen als PDF teilen.
+- Das Original bleibt unverändert, Anmerkungen liegen darüber.
+
+**Wissen**
+- Einträge mit Unterthemen (Baum), Text, Tags, Suche im Titel und Text.
+- Verknüpfungen zu allem: andere Einträge, Notizbuchseiten, PDFs, Canvas. Rückverweise erscheinen automatisch.
+- Notizbuch „…“ → „Wissenseintrag aus Seite“ verknüpft den Eintrag mit der Seite.
+- Eintrag „Auf einen Canvas legen“ und im Canvas „Wissen, PDF oder Notizbuch einfügen“ (Verweis-Karten, Doppeltippen öffnet das Ziel).
+- Zwei verbundene Verweis-Karten verknüpfen auch die Einträge dahinter.
 
 ## Neu in 0.3 – Werkzeuge auf Goodnotes-Niveau
 

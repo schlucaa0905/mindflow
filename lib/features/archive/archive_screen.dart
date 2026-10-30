@@ -4,6 +4,7 @@ import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
 import '../../ui/widgets.dart';
+import '../common/object_info.dart';
 
 /// ARCHIVE – archivierte Inhalte und Papierkorb, alles wiederherstellbar.
 class ArchiveScreen extends StatelessWidget {
@@ -77,12 +78,7 @@ class _Row extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             side: BorderSide(color: mf.border)),
         child: ListTile(
-          leading: Icon(
-            object.type == ObjectType.notebook
-                ? Icons.menu_book_outlined
-                : Icons.bubble_chart_outlined,
-            color: mf.textMuted,
-          ),
+          leading: Icon(iconFor(object.type), color: mf.textMuted),
           title: Text(object.displayTitle, style: TextStyle(color: mf.text)),
           subtitle: Text(info, style: TextStyle(color: mf.textMuted)),
           trailing: TextButton.icon(

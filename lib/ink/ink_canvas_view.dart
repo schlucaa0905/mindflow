@@ -123,6 +123,21 @@ class _InkCanvasViewState extends State<InkCanvasView>
     }
   }
 
+  /// Schreiben nur auf dem Blatt. Außerhalb verschiebt der Stift die
+  /// Ansicht, statt zu zeichnen. Lasso, Radierer und Laser gehen überall.
+  bool _allowedHere(PointerDownEvent e) {
+    switch (c.tool) {
+      case ToolMode.pen:
+      case ToolMode.highlighter:
+      case ToolMode.shape:
+        return c.canDrawAt(c.camera.toWorld(e.localPosition));
+      case ToolMode.eraser:
+      case ToolMode.lasso:
+      case ToolMode.laser:
+        return true;
+    }
+  }
+
   // --- Werkzeuge ----------------------------------------------------------
 
   void _startDraw(PointerEvent e) {
@@ -236,7 +251,7 @@ class _InkCanvasViewState extends State<InkCanvasView>
     }
     if (e.kind == PointerDeviceKind.touch) _trackMultiTapDown(e);
 
-    if (_drawPointer == null && _wantsDraw(e)) {
+    if (_drawPointer == null && _wantsDraw(e) && _allowedHere(e)) {
       _drawPointer = e.pointer;
       _drawKind = e.kind;
       if (e.kind == PointerDeviceKind.touch) {
@@ -408,7 +423,8 @@ class _InkCanvasViewState extends State<InkCanvasView>
                     DotGridPainter(c.camera, const Color(0x22FFFFFF))),
           ),
           RepaintBoundary(
-            child: CustomPaint(painter: _ScenePainter(c.scene, c.camera)),
+            child: CustomPaint(
+                painter: _ScenePainter(c.scene, c.camera, c.drawBounds)),
           ),
           RepaintBoundary(
             child: CustomPaint(painter: _LivePainter(c.live, c.camera)),
@@ -714,11 +730,14 @@ class DotGridPainter extends CustomPainter {
 
 /// Zeichnet die fertigen Striche – nur Abschnitte, die sichtbar sind.
 class _ScenePainter extends CustomPainter {
-  _ScenePainter(this.scene, this.camera)
+  _ScenePainter(this.scene, this.camera, this.clip)
       : super(repaint: Listenable.merge([scene, camera]));
 
   final InkScene scene;
   final Camera camera;
+
+  /// Nur innerhalb dieses Bereichs zeichnen (das Blatt).
+  final Rect? clip;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -726,6 +745,8 @@ class _ScenePainter extends CustomPainter {
     canvas.save();
     canvas.translate(camera.offset.dx, camera.offset.dy);
     canvas.scale(camera.scale);
+    final clip = this.clip;
+    if (clip != null) canvas.clipRect(clip);
     for (final chunk in scene.chunks) {
       if (chunk.bounds.overlaps(visible)) canvas.drawPicture(chunk.picture);
     }
@@ -734,7 +755,7 @@ class _ScenePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ScenePainter old) =>
-      old.scene != scene || old.camera != camera;
+      old.scene != scene || old.camera != camera || old.clip != clip;
 }
 
 /// Zeichnet nur den Strich, der gerade entsteht.

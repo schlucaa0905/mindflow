@@ -17,9 +17,11 @@ class ObjectCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final o = object;
-    return o.type == ObjectType.notebook
-        ? _NotebookCard(o)
-        : _BoardCard(o);
+    return switch (o.type) {
+      ObjectType.notebook => _NotebookCard(o),
+      ObjectType.document => _DocumentCard(o),
+      _ => _BoardCard(o),
+    };
   }
 }
 
@@ -98,6 +100,90 @@ class _NotebookCard extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _DocumentCard extends StatelessWidget {
+  const _DocumentCard(this.o);
+  final MfObject o;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    final pages = o.pageSizes.length;
+    return Material(
+      color: mf.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: mf.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => openObject(context, o),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Container(
+                color: PaperStyle.light.desk,
+                padding: const EdgeInsets.fromLTRB(28, 16, 28, 0),
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                        BorderRadius.vertical(top: Radius.circular(6)),
+                    boxShadow: [
+                      BoxShadow(color: Color(0x22000000), blurRadius: 8),
+                    ],
+                  ),
+                  child: Stack(
+                    children: [
+                      const Center(
+                        child: Icon(Icons.picture_as_pdf_outlined,
+                            size: 34, color: Color(0xFFDC2626)),
+                      ),
+                      if (o.pinned)
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child:
+                              Icon(Icons.push_pin, size: 14, color: mf.accent),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(o.displayTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontWeight: FontWeight.w600, color: mf.text)),
+                        const SizedBox(height: 2),
+                        Text(
+                            'PDF · $pages ${pages == 1 ? 'Seite' : 'Seiten'} · ${relativeTime(o.updatedAt)}',
+                            maxLines: 1,
+                            style:
+                                TextStyle(fontSize: 12, color: mf.textMuted)),
+                      ],
+                    ),
+                  ),
+                  ObjectMenu(object: o),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

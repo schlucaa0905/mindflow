@@ -45,8 +45,8 @@ class ObjectRepository extends ChangeNotifier {
 
   /// Zuletzt geöffnete Notizbücher und Canvas-Flächen.
   List<MfObject> recent({int limit = 8}) => _query(
-      "SELECT * FROM objects WHERE type IN ('notebook','board') AND $_active "
-      'ORDER BY COALESCE(opened_at, updated_at) DESC LIMIT ?',
+      "SELECT * FROM objects WHERE type IN ('notebook','board','document') "
+      'AND $_active ORDER BY COALESCE(opened_at, updated_at) DESC LIMIT ?',
       [limit]);
 
   List<MfObject> pinned() => _query(
@@ -59,7 +59,8 @@ class ObjectRepository extends ChangeNotifier {
 
   List<MfObject> trashed() => _query(
       'SELECT * FROM objects WHERE deleted_at IS NOT NULL '
-      "AND type IN ('notebook','board') ORDER BY deleted_at DESC");
+      "AND type IN ('notebook','board','document','knowledge') "
+      'ORDER BY deleted_at DESC');
 
   /// Alle vergebenen Kategorien eines Typs, alphabetisch.
   List<String> categories(ObjectType type) {
@@ -73,11 +74,14 @@ class ObjectRepository extends ChangeNotifier {
   List<MfObject> search(String text) {
     final q = text.trim();
     if (q.isEmpty) return [];
+    final like = '%${_escapeLike(q)}%';
+    // Titel aller Hauptobjekte; bei Wissenseinträgen auch der Text.
     return _query(
-        "SELECT * FROM objects WHERE type IN ('notebook','board') "
-        'AND deleted_at IS NULL AND title LIKE ? ESCAPE ? '
-        'ORDER BY archived, updated_at DESC LIMIT 50',
-        ['%${_escapeLike(q)}%', r'\']);
+        "SELECT * FROM objects WHERE type IN ('notebook','board','document',"
+        "'knowledge') AND deleted_at IS NULL AND (title LIKE ? ESCAPE ? "
+        "OR (type = 'knowledge' AND data LIKE ? ESCAPE ?)) "
+        'ORDER BY archived, updated_at DESC LIMIT 60',
+        [like, r'\', like, r'\']);
   }
 
   // --- Schreiben --------------------------------------------------------
@@ -175,6 +179,38 @@ class ObjectRepository extends ChangeNotifier {
         [id, sourceId, targetId, type, now, now]);
     notifyListeners();
     return id;
+  }
+
+  /// Sind zwei Objekte schon verbunden (egal in welche Richtung)?
+  bool isLinked(String a, String b) => _db.select(
+      'SELECT 1 FROM links WHERE deleted_at IS NULL AND '
+      '((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?))',
+      [a, b, b, a]).isNotEmpty;
+
+  /// Verbindet zwei Objekte nur, wenn sie noch nicht verbunden sind.
+  void linkOnce(String a, String b, {String type = 'related'}) {
+    if (a == b || isLinked(a, b)) return;
+    link(a, b, type: type);
+  }
+
+  /// Löst die Verbindung zweier Objekte (als Grabstein).
+  void unlink(String a, String b) {
+    final now = _now();
+    _db.execute(
+        'UPDATE links SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL '
+        'AND ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?))',
+        [now, now, a, b, b, a]);
+    notifyListeners();
+  }
+
+  /// Alle verbundenen, nicht gelöschten Objekte.
+  List<MfObject> linkedObjects(String id) {
+    final out = <MfObject>[];
+    for (final other in linkedIds(id)) {
+      final o = get(other);
+      if (o != null && o.deletedAt == null) out.add(o);
+    }
+    return out;
   }
 
   /// IDs aller Objekte, die mit [id] verbunden sind (beide Richtungen).

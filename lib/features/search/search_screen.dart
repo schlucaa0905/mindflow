@@ -5,6 +5,7 @@ import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
 import '../../ui/widgets.dart';
+import '../common/object_info.dart';
 
 /// SEARCH – globale Suche. Ergebnisse führen direkt zum Inhalt.
 ///
@@ -45,7 +46,7 @@ class _SearchScreenState extends State<SearchScreen> {
           onChanged: (v) => setState(() => _q = v),
           decoration: const InputDecoration(
             prefixIcon: Icon(Icons.search),
-            hintText: 'Notizbücher, Canvas, Karten …',
+            hintText: 'Notizbücher, PDFs, Wissen, Canvas, Karten …',
           ),
         ),
         const SizedBox(height: 24),
@@ -58,12 +59,12 @@ class _SearchScreenState extends State<SearchScreen> {
         else ...[
           for (final o in objects)
             _ResultTile(
-              icon: o.type == ObjectType.notebook
-                  ? Icons.menu_book_outlined
-                  : Icons.bubble_chart_outlined,
+              icon: iconFor(o.type),
               title: o.displayTitle,
               subtitle: [
-                o.type == ObjectType.notebook ? 'Notizbuch' : 'Canvas',
+                typeLabel(o.type),
+                if (o.type == ObjectType.knowledge && o.body.trim().isNotEmpty)
+                  o.body.trim().split('\n').first,
                 if (o.archived) 'archiviert',
               ].join(' · '),
               onTap: () => openObject(context, o),

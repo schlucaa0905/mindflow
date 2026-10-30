@@ -56,7 +56,7 @@ class InkToolbar extends StatelessWidget {
           if (collapsed) ...[
             if (showInkTools)
               ToolButton(
-                icon: _toolIcon(c),
+                icon: toolIcon(c),
                 label: 'Aktuelles Werkzeug',
                 selected: true,
                 onTap: onToggleCollapsed,
@@ -95,25 +95,25 @@ class InkToolbar extends StatelessWidget {
 
   List<Widget> _tools(BuildContext context, InkController c) => [
         _ToolWithMenu(
-          icon: _penIcon(c.penType),
+          icon: penIcon(c.penType),
           label: '${c.penType.label} (P) – nochmal tippen: Optionen',
           selected: c.tool == ToolMode.pen,
           onSelect: () => c.setTool(ToolMode.pen),
-          menu: (context) => _PenOptions(c),
+          menu: (context) => PenOptions(c),
         ),
         _ToolWithMenu(
           icon: Icons.border_color_outlined,
           label: 'Textmarker (H) – nochmal tippen: Optionen',
           selected: c.tool == ToolMode.highlighter,
           onSelect: () => c.setTool(ToolMode.highlighter),
-          menu: (context) => _HighlighterOptions(c),
+          menu: (context) => HighlighterOptions(c),
         ),
         _ToolWithMenu(
           icon: Icons.auto_fix_normal_outlined,
           label: 'Radierer (E) – nochmal tippen: Optionen',
           selected: c.tool == ToolMode.eraser,
           onSelect: () => c.setTool(ToolMode.eraser),
-          menu: (context) => _EraserOptions(c),
+          menu: (context) => EraserOptions(c),
         ),
         ToolButton(
           icon: Icons.gesture,
@@ -122,11 +122,11 @@ class InkToolbar extends StatelessWidget {
           onTap: () => c.setTool(ToolMode.lasso),
         ),
         _ToolWithMenu(
-          icon: _shapeIcon(c.shapeKind),
+          icon: shapeIcon(c.shapeKind),
           label: 'Formen (S) – nochmal tippen: Form wählen',
           selected: c.tool == ToolMode.shape,
           onSelect: () => c.setTool(ToolMode.shape),
-          menu: (context) => _ShapeOptions(c),
+          menu: (context) => ShapeOptions(c),
         ),
         ToolButton(
           icon: Icons.highlight_alt,
@@ -158,7 +158,7 @@ class InkToolbar extends StatelessWidget {
       // Lieblingsstifte
       if (c.tool == ToolMode.pen && c.settings.presets.isNotEmpty) ...[
         for (final p in c.settings.presets)
-          _PresetButton(preset: p, controller: c),
+          PresetButton(preset: p, controller: c),
         div,
       ],
       for (var i = 0; i < palette.length; i++)
@@ -230,13 +230,13 @@ class InkToolbar extends StatelessWidget {
       ];
 }
 
-IconData _penIcon(PenType t) => switch (t) {
+IconData penIcon(PenType t) => switch (t) {
       PenType.fountain => Icons.edit_outlined,
       PenType.ballpoint => Icons.create_outlined,
       PenType.brush => Icons.brush_outlined,
     };
 
-IconData _shapeIcon(ShapeKind k) => switch (k) {
+IconData shapeIcon(ShapeKind k) => switch (k) {
       ShapeKind.line => Icons.horizontal_rule,
       ShapeKind.arrow => Icons.arrow_right_alt,
       ShapeKind.rectangle => Icons.crop_square,
@@ -244,12 +244,12 @@ IconData _shapeIcon(ShapeKind k) => switch (k) {
       ShapeKind.triangle => Icons.change_history,
     };
 
-IconData _toolIcon(InkController c) => switch (c.tool) {
-      ToolMode.pen => _penIcon(c.penType),
+IconData toolIcon(InkController c) => switch (c.tool) {
+      ToolMode.pen => penIcon(c.penType),
       ToolMode.highlighter => Icons.border_color_outlined,
       ToolMode.eraser => Icons.auto_fix_normal_outlined,
       ToolMode.lasso => Icons.gesture,
-      ToolMode.shape => _shapeIcon(c.shapeKind),
+      ToolMode.shape => shapeIcon(c.shapeKind),
       ToolMode.laser => Icons.highlight_alt,
     };
 
@@ -310,8 +310,8 @@ class _DragHandle extends StatelessWidget {
 }
 
 /// Ein gespeicherter Lieblingsstift in der Leiste.
-class _PresetButton extends StatelessWidget {
-  const _PresetButton({required this.preset, required this.controller});
+class PresetButton extends StatelessWidget {
+  const PresetButton({required this.preset, required this.controller});
 
   final PenPreset preset;
   final InkController controller;
@@ -338,7 +338,7 @@ class _PresetButton extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(_penIcon(preset.type), size: 16, color: Color(preset.color)),
+              Icon(penIcon(preset.type), size: 16, color: Color(preset.color)),
               const SizedBox(height: 3),
               Container(
                 width: 18,
@@ -518,8 +518,8 @@ class _WidthSlider extends StatelessWidget {
   }
 }
 
-class _PenOptions extends StatelessWidget {
-  const _PenOptions(this.c);
+class PenOptions extends StatelessWidget {
+  const PenOptions(this.c);
   final InkController c;
 
   @override
@@ -537,7 +537,7 @@ class _PenOptions extends StatelessWidget {
               for (final t in PenType.values)
                 ButtonSegment(
                     value: t,
-                    icon: Icon(_penIcon(t), size: 16),
+                    icon: Icon(penIcon(t), size: 16),
                     tooltip: t.label),
             ],
             selected: {c.penType},
@@ -567,8 +567,8 @@ class _PenOptions extends StatelessWidget {
   }
 }
 
-class _HighlighterOptions extends StatelessWidget {
-  const _HighlighterOptions(this.c);
+class HighlighterOptions extends StatelessWidget {
+  const HighlighterOptions(this.c);
   final InkController c;
 
   @override
@@ -593,8 +593,8 @@ class _HighlighterOptions extends StatelessWidget {
   }
 }
 
-class _EraserOptions extends StatelessWidget {
-  const _EraserOptions(this.c);
+class EraserOptions extends StatelessWidget {
+  const EraserOptions(this.c);
   final InkController c;
 
   @override
@@ -640,8 +640,8 @@ class _EraserOptions extends StatelessWidget {
   }
 }
 
-class _ShapeOptions extends StatelessWidget {
-  const _ShapeOptions(this.c);
+class ShapeOptions extends StatelessWidget {
+  const ShapeOptions(this.c);
   final InkController c;
 
   @override
@@ -659,7 +659,7 @@ class _ShapeOptions extends StatelessWidget {
             children: [
               for (final k in ShapeKind.values)
                 ChoiceChip(
-                  avatar: Icon(_shapeIcon(k), size: 18),
+                  avatar: Icon(shapeIcon(k), size: 18),
                   label: Text(k.label),
                   selected: c.shapeKind == k,
                   onSelected: (_) => c.setShapeKind(k),

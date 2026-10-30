@@ -1,18 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../app/navigation.dart';
 import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
+import '../../export/pdf_export.dart';
+import '../../ink/ink_controller.dart';
 import '../../ink/ink_surface.dart';
 import '../../storage/ink_store.dart';
+import '../../ui/editor_bar.dart';
 import '../../ui/widgets.dart';
 import '../common/create_dialogs.dart';
+import 'page_overview.dart';
 import 'page_painter.dart';
 
-/// Ein geöffnetes Notizbuch: eine Seite zur Zeit, Blättern, Seitenverwaltung.
+/// Ein geöffnetes Notizbuch im Goodnotes-Stil: oben Navigation und
+/// Werkzeuge, darunter das Blatt. Geschrieben wird nur auf dem Blatt.
 class NotebookScreen extends StatefulWidget {
-  const NotebookScreen({super.key, required this.notebookId, this.initialPageId});
+  const NotebookScreen(
+      {super.key, required this.notebookId, this.initialPageId});
 
   final String notebookId;
   final String? initialPageId;
@@ -61,27 +68,31 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   MfObject get _page => _pages[_index];
 
+  Future<void> _flush() async => _surfaceKey.currentState?.flush();
+
   Future<void> _goTo(int i) async {
     if (i < 0 || i >= _pages.length || i == _index) return;
-    await _surfaceKey.currentState?.flush();
+    await _flush();
+    if (!mounted) return;
     setState(() {
       _index = i;
       _surfaceKey = GlobalKey();
     });
   }
 
-  Future<void> _addPage({bool duplicate = false}) async {
-    await _surfaceKey.currentState?.flush();
-    final current = _page;
+  Future<void> _addPage({bool duplicate = false, int? after}) async {
+    await _flush();
+    final base = _pages[after ?? _index];
     final page = _s.objects.create(
       type: ObjectType.page,
       parentId: widget.notebookId,
-      position: _s.objects.positionAfter(current),
+      position: _s.objects.positionAfter(base),
       data: duplicate
-          ? Map<String, dynamic>.of(current.data)
+          ? Map<String, dynamic>.of(base.data)
           : {'template': _notebook!.template.name},
     );
-    if (duplicate) await InkStore.duplicate(current.id, page.id);
+    if (duplicate) await InkStore.duplicate(base.id, page.id);
+    if (!mounted) return;
     setState(() {
       _reload();
       _index = _pages.indexWhere((p) => p.id == page.id);
@@ -124,14 +135,35 @@ class _NotebookScreenState extends State<NotebookScreen> {
     });
   }
 
-  void _setTemplate(MfObject page, PageTemplate t) {
+  Future<void> _chooseTemplate(MfObject page) async {
+    final t = await showDialog<PageTemplate>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Vorlage dieser Seite'),
+        children: [
+          for (final t in PageTemplate.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, t),
+              child: Row(children: [
+                SizedBox(
+                    width: 28,
+                    child: page.template == t
+                        ? const Icon(Icons.check, size: 18)
+                        : null),
+                Text(t.label),
+              ]),
+            ),
+        ],
+      ),
+    );
+    if (t == null) return;
     _s.objects.setData(page.id, {...page.data, 'template': t.name});
     setState(_reload);
   }
 
   /// Titel, Umschlag, Papier, Format, Kategorie ändern.
-  Future<void> _rename() async {
-    await _surfaceKey.currentState?.flush();
+  Future<void> _editNotebook() async {
+    await _flush();
     if (!mounted) return;
     await editNotebook(context, _notebook!);
     if (!mounted) return;
@@ -141,132 +173,168 @@ class _NotebookScreenState extends State<NotebookScreen> {
     });
   }
 
-  void _showPages() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) {
-          final mf = ctx.mf;
-          void refresh() => setSheet(() {});
-          return SafeArea(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(ctx).size.height * 0.7),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
-                    child: Row(
-                      children: [
-                        Text('Seiten',
-                            style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w600,
-                                color: mf.text)),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: () async {
-                            Navigator.pop(ctx);
-                            await _addPage();
-                          },
-                          icon: const Icon(Icons.add, size: 18),
-                          label: const Text('Seite hinzufügen'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: _pages.length,
-                      itemBuilder: (_, i) {
-                        final p = _pages[i];
-                        return ListTile(
-                          selected: i == _index,
-                          leading: CircleAvatar(
-                            radius: 16,
-                            backgroundColor:
-                                i == _index ? mf.accent : mf.surfaceRaised,
-                            child: Text('${i + 1}',
-                                style: TextStyle(
-                                    fontSize: 13,
-                                    color: i == _index
-                                        ? Colors.white
-                                        : mf.text)),
-                          ),
-                          title: Text('Seite ${i + 1}'),
-                          subtitle: Text(p.template.label),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            _goTo(i);
-                          },
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (v) async {
-                              switch (v) {
-                                case 'up':
-                                  _move(p, -1);
-                                  refresh();
-                                case 'down':
-                                  _move(p, 1);
-                                  refresh();
-                                case 'dup':
-                                  Navigator.pop(ctx);
-                                  if (i != _index) await _goTo(i);
-                                  await _addPage(duplicate: true);
-                                case 'del':
-                                  Navigator.pop(ctx);
-                                  _deletePage(p);
-                                default:
-                                  final t = PageTemplate.values
-                                      .where((t) => 'tpl:${t.name}' == v)
-                                      .firstOrNull;
-                                  if (t != null) {
-                                    _setTemplate(p, t);
-                                    refresh();
-                                  }
-                              }
-                            },
-                            itemBuilder: (_) => [
-                              if (i > 0)
-                                const PopupMenuItem(
-                                    value: 'up', child: Text('Nach oben')),
-                              if (i < _pages.length - 1)
-                                const PopupMenuItem(
-                                    value: 'down', child: Text('Nach unten')),
-                              const PopupMenuItem(
-                                  value: 'dup', child: Text('Duplizieren')),
-                              const PopupMenuDivider(),
-                              for (final t in PageTemplate.values)
-                                PopupMenuItem(
-                                  value: 'tpl:${t.name}',
-                                  child: Row(children: [
-                                    SizedBox(
-                                      width: 24,
-                                      child: p.template == t
-                                          ? const Icon(Icons.check, size: 16)
-                                          : null,
-                                    ),
-                                    Text('Vorlage: ${t.label}'),
-                                  ]),
-                                ),
-                              const PopupMenuDivider(),
-                              const PopupMenuItem(
-                                  value: 'del', child: Text('Löschen')),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+  Future<void> _showOverview() async {
+    await _flush();
+    if (!mounted) return;
+    final nb = _notebook!;
+    final rect = pageRectFor(nb.format);
+    final paper = PaperStyle.of(nb.paper);
+    final picked = await showPageOverview(
+      context,
+      title: nb.displayTitle,
+      count: _pages.length,
+      current: _index,
+      thumbnail: (context, i) => PageThumbnail(
+        inkId: _pages[i].id,
+        page: rect,
+        paper: paper,
+        template: _pages[i].template,
       ),
+      onAdd: () => _addPage(after: _pages.length - 1),
+      menuItems: (i) => [
+        if (i > 0) const PopupMenuItem(value: 'up', child: Text('Nach vorne')),
+        if (i < _pages.length - 1)
+          const PopupMenuItem(value: 'down', child: Text('Nach hinten')),
+        const PopupMenuItem(value: 'dup', child: Text('Duplizieren')),
+        const PopupMenuItem(value: 'tpl', child: Text('Vorlage ändern')),
+        const PopupMenuItem(value: 'del', child: Text('Löschen')),
+      ],
+      onMenu: (i, action) async {
+        final p = _pages[i];
+        switch (action) {
+          case 'up':
+            _move(p, -1);
+          case 'down':
+            _move(p, 1);
+          case 'dup':
+            await _addPage(duplicate: true, after: i);
+          case 'tpl':
+            await _chooseTemplate(p);
+          case 'del':
+            _deletePage(p);
+        }
+      },
+    );
+    if (picked != null) await _goTo(picked);
+  }
+
+  /// Aus der aktuellen Seite einen Wissenseintrag machen (mit Verknüpfung).
+  Future<void> _createKnowledgeFromPage() async {
+    final title = await askText(context,
+        title: 'Wissenseintrag aus dieser Seite',
+        hint: 'Thema, z. B. DHCP',
+        confirm: 'Erstellen');
+    if (title == null || title.trim().isEmpty || !mounted) return;
+    final entry = _s.objects.create(
+      type: ObjectType.knowledge,
+      title: title.trim(),
+      data: {'body': '', 'tags': <String>[]},
+    );
+    _s.objects.link(entry.id, _page.id, type: 'source');
+    await openObject(context, entry);
+  }
+
+  Future<void> _export() async {
+    await _flush();
+    if (!mounted) return;
+    final nb = _notebook!;
+    final rect = pageRectFor(nb.format);
+    final paper = PaperStyle.of(nb.paper);
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(content: Text('PDF wird erstellt …')));
+    try {
+      final pages = <ExportPage>[];
+      for (final p in _pages) {
+        final strokes = await InkStore(p.id).load();
+        pages.add(await renderPage(
+          page: rect,
+          strokes: strokes,
+          paintBackground: (canvas) => paintSheet(
+              canvas, rect, paper, p.template,
+              hairline: 0.6, shadow: false),
+        ));
+      }
+      await sharePdf(nb.displayTitle, pages);
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('Export fehlgeschlagen: $e')));
+    }
+  }
+
+  Widget _nav(BuildContext context, InkController c) {
+    final nb = _notebook!;
+    return EditorNavBar(
+      title: nb.displayTitle,
+      subtitle: nb.category.isEmpty ? null : nb.category,
+      onTitleTap: _editNotebook,
+      center: PagePager(
+        index: _index,
+        count: _pages.length,
+        onPrev: () => _goTo(_index - 1),
+        onNext: () => _goTo(_index + 1),
+        onTap: _showOverview,
+      ),
+      actions: [
+        ListenableBuilder(
+          listenable: c,
+          builder: (context, _) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              NavIconButton(
+                icon: Icons.undo,
+                tooltip: 'Rückgängig',
+                onTap: c.history.canUndo ? c.undo : null,
+              ),
+              NavIconButton(
+                icon: Icons.redo,
+                tooltip: 'Wiederholen',
+                onTap: c.history.canRedo ? c.redo : null,
+              ),
+            ],
+          ),
+        ),
+        NavIconButton(
+          icon: Icons.grid_view_rounded,
+          tooltip: 'Seitenübersicht',
+          onTap: _showOverview,
+        ),
+        NavIconButton(
+          icon: Icons.note_add_outlined,
+          tooltip: 'Seite dahinter einfügen',
+          onTap: () => _addPage(),
+        ),
+        EditorMoreMenu(
+          controller: c,
+          onSelected: (v) async {
+            switch (v) {
+              case 'dup':
+                await _addPage(duplicate: true);
+              case 'tpl':
+                await _chooseTemplate(_page);
+              case 'del':
+                _deletePage(_page);
+              case 'knowledge':
+                await _createKnowledgeFromPage();
+              case 'export':
+                await _export();
+              case 'settings':
+                await _editNotebook();
+            }
+          },
+          items: const [
+            PopupMenuItem(value: 'dup', child: Text('Seite duplizieren')),
+            PopupMenuItem(value: 'tpl', child: Text('Vorlage dieser Seite')),
+            PopupMenuItem(value: 'del', child: Text('Seite löschen')),
+            PopupMenuDivider(),
+            PopupMenuItem(
+                value: 'knowledge', child: Text('Wissenseintrag aus Seite')),
+            PopupMenuItem(value: 'export', child: Text('Als PDF teilen')),
+            PopupMenuDivider(),
+            PopupMenuItem(
+                value: 'settings', child: Text('Umschlag & Einstellungen')),
+          ],
+        ),
+      ],
     );
   }
 
@@ -274,150 +342,93 @@ class _NotebookScreenState extends State<NotebookScreen> {
   Widget build(BuildContext context) {
     final nb = _notebook;
     if (nb == null || _pages.isEmpty) {
-      return const Scaffold(body: Center(child: Text('Notizbuch nicht gefunden')));
+      return const Scaffold(
+          body: Center(child: Text('Notizbuch nicht gefunden')));
     }
     final paper = PaperStyle.of(nb.paper);
     final page = _page;
     final pageRect = pageRectFor(nb.format);
-    final mf = context.mf;
 
-    // Bild auf/ab bzw. Pfeiltasten: blättern (Windows-Tastatur).
+    // Bild auf/ab bzw. Alt+Pfeil: blättern (Tastatur).
     return CallbackShortcuts(
       bindings: {
-        const SingleActivator(LogicalKeyboardKey.pageDown): () => _goTo(_index + 1),
-        const SingleActivator(LogicalKeyboardKey.pageUp): () => _goTo(_index - 1),
+        const SingleActivator(LogicalKeyboardKey.pageDown): () =>
+            _goTo(_index + 1),
+        const SingleActivator(LogicalKeyboardKey.pageUp): () =>
+            _goTo(_index - 1),
         const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true): () =>
             _goTo(_index + 1),
         const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): () =>
             _goTo(_index - 1),
       },
       child: Scaffold(
-      backgroundColor: paper.desk,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: InkSurface(
-              key: _surfaceKey,
-              inkId: page.id,
-              paper: nb.paper,
-              fitRect: pageRect,
-              lockToFit: true,
-              toolbarInsets: const EdgeInsets.fromLTRB(12, 64, 12, 84),
-              onSaved: () => _s.objects.touch(nb.id),
-              backgroundBuilder: (camera) => PagePainter(
-                camera: camera,
-                paper: paper,
-                template: page.template,
-                page: pageRect,
-              ),
-            ),
+        backgroundColor: paper.desk,
+        body: InkSurface(
+          key: _surfaceKey,
+          inkId: page.id,
+          paper: nb.paper,
+          fitRect: pageRect,
+          lockToFit: true,
+          drawBounds: pageRect,
+          navBar: _nav,
+          onSaved: () => _s.objects.touch(nb.id),
+          backgroundBuilder: (camera) => PagePainter(
+            camera: camera,
+            paper: paper,
+            template: page.template,
+            page: pageRect,
           ),
-          // Kopfzeile
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-                child: Row(
-                  children: [
-                    FloatingPanel(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ToolButton(
-                            icon: Icons.arrow_back,
-                            label: 'Zurück',
-                            onTap: () => Navigator.of(context).maybePop(),
-                          ),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 260),
-                            child: InkWell(
-                              onTap: _rename,
-                              borderRadius: BorderRadius.circular(8),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 10),
-                                child: Text(nb.displayTitle,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: mf.text)),
-                              ),
-                            ),
-                          ),
-                          ToolButton(
-                            icon: Icons.tune,
-                            label: 'Umschlag, Papier & Format',
-                            onTap: _rename,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          // Seitennavigation unten
-          Positioned(
-            bottom: 16,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              top: false,
-              child: Center(
-                child: FloatingPanel(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ToolButton(
-                        icon: Icons.chevron_left,
-                        label: 'Vorherige Seite',
-                        onTap: _index > 0 ? () => _goTo(_index - 1) : null,
-                      ),
-                      InkWell(
-                        onTap: _showPages,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
-                          child: Text('${_index + 1} / ${_pages.length}',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: mf.text)),
-                        ),
-                      ),
-                      ToolButton(
-                        icon: Icons.chevron_right,
-                        label: 'Nächste Seite',
-                        onTap: _index < _pages.length - 1
-                            ? () => _goTo(_index + 1)
-                            : null,
-                      ),
-                      const PanelDivider(),
-                      ToolButton(
-                        icon: Icons.note_add_outlined,
-                        label: 'Seite dahinter einfügen',
-                        onTap: () => _addPage(),
-                      ),
-                      ToolButton(
-                        icon: Icons.view_agenda_outlined,
-                        label: 'Alle Seiten',
-                        onTap: _showPages,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
-    ),
     );
   }
 }
+
+/// "…"-Menü mit Zusatzpunkt für die Werkzeugleiste.
+class EditorMoreMenu extends StatelessWidget {
+  const EditorMoreMenu({
+    required this.controller,
+    required this.items,
+    required this.onSelected,
+  });
+
+  final InkController controller;
+  final List<PopupMenuEntry<String>> items;
+  final Future<void> Function(String value) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = controller.settings;
+    return PopupMenuButton<String>(
+      tooltip: 'Mehr',
+      icon: Icon(Icons.more_horiz, color: context.mf.text),
+      onSelected: (v) {
+        if (v == '_toolbar') {
+          s.update(() {
+            if (s.dock == ToolbarDock.top) {
+              s.dock = ToolbarDock.floating;
+              s.floatX = 0.3;
+              s.floatY = 0.05;
+            } else {
+              s.dock = ToolbarDock.top;
+            }
+            s.collapsed = false;
+          });
+          return;
+        }
+        onSelected(v);
+      },
+      itemBuilder: (_) => [
+        ...items,
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: '_toolbar',
+          child: Text(s.dock == ToolbarDock.top
+              ? 'Werkzeugleiste frei verschiebbar'
+              : 'Werkzeugleiste oben fest'),
+        ),
+      ],
+    );
+  }
+}
+

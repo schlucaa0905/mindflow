@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui' show Size;
 
 import 'package:sqlite3/sqlite3.dart';
 
@@ -120,6 +121,34 @@ class MfObject {
   String get category => (data['category'] as String?)?.trim() ?? '';
 
   String get description => (data['description'] as String?)?.trim() ?? '';
+
+  // --- Wissenseinträge ---
+
+  /// Text eines Wissenseintrags.
+  String get body => (data['body'] as String?) ?? '';
+
+  List<String> get tags => [
+        for (final t in (data['tags'] as List?) ?? const [])
+          if (t is String && t.trim().isNotEmpty) t.trim()
+      ];
+
+  // --- Dokumente (PDF) ---
+
+  /// Seitengrößen in Punkten, wie beim Import gemessen.
+  List<Size> get pageSizes {
+    final raw = data['sizes'];
+    if (raw is! List) return const [];
+    final out = <Size>[];
+    for (final e in raw) {
+      if (e is List && e.length == 2 && e[0] is num && e[1] is num) {
+        out.add(Size((e[0] as num).toDouble(), (e[1] as num).toDouble()));
+      }
+    }
+    return out;
+  }
+
+  /// Dateiname der PDF im App-Ordner.
+  String? get fileName => data['file'] as String?;
 }
 
 DateTime _date(int ms) => DateTime.fromMillisecondsSinceEpoch(ms);

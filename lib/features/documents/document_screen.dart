@@ -1,0 +1,324 @@
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../app/navigation.dart';
+import '../../app/services.dart';
+import '../../app/theme.dart';
+import '../../data/models.dart';
+import '../../export/pdf_export.dart';
+import '../../ink/camera.dart';
+import '../../ink/ink_controller.dart';
+import '../../ink/ink_surface.dart';
+import '../../storage/ink_store.dart';
+import '../../ui/editor_bar.dart';
+import '../../ui/widgets.dart';
+import '../notebook/notebook_screen.dart';
+import '../notebook/page_overview.dart';
+import 'pdf_service.dart';
+
+/// Ein geöffnetes PDF: lesen, mit dem Stift hineinschreiben, markieren.
+/// Das Original bleibt unverändert, Anmerkungen liegen darüber.
+class DocumentScreen extends StatefulWidget {
+  const DocumentScreen({super.key, required this.documentId, this.initialPage = 0});
+
+  final String documentId;
+  final int initialPage;
+
+  @override
+  State<DocumentScreen> createState() => _DocumentScreenState();
+}
+
+class _DocumentScreenState extends State<DocumentScreen> {
+  late AppServices _s;
+  MfObject? _doc;
+  int _index = 0;
+  GlobalKey<InkSurfaceState> _surfaceKey = GlobalKey();
+  final ValueNotifier<ui.Image?> _image = ValueNotifier(null);
+  bool _failed = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_doc != null) return;
+    _s = Services.of(context);
+    _doc = _s.objects.get(widget.documentId);
+    _s.objects.markOpened(widget.documentId);
+    final count = _doc?.pageSizes.length ?? 0;
+    _index = widget.initialPage.clamp(0, count == 0 ? 0 : count - 1).toInt();
+    _loadImage();
+  }
+
+  @override
+  void dispose() {
+    _image.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadImage() async {
+    final doc = _doc;
+    if (doc == null) return;
+    final index = _index;
+    _image.value = null;
+    try {
+      final img = await PdfService.renderPage(doc, index, dpi: 160);
+      if (!mounted || index != _index) return;
+      _image.value = img;
+      if (img == null) setState(() => _failed = true);
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  Rect _rectFor(int i) {
+    final sizes = _doc!.pageSizes;
+    final s = sizes[i];
+    return Rect.fromLTWH(0, 0, s.width, s.height);
+  }
+
+  Future<void> _goTo(int i) async {
+    final count = _doc!.pageSizes.length;
+    if (i < 0 || i >= count || i == _index) return;
+    await _surfaceKey.currentState?.flush();
+    if (!mounted) return;
+    setState(() {
+      _index = i;
+      _failed = false;
+      _surfaceKey = GlobalKey();
+    });
+    _loadImage();
+  }
+
+  Future<void> _showOverview() async {
+    await _surfaceKey.currentState?.flush();
+    if (!mounted) return;
+    final doc = _doc!;
+    final picked = await showPageOverview(
+      context,
+      title: doc.displayTitle,
+      count: doc.pageSizes.length,
+      current: _index,
+      thumbnail: (context, i) => PageThumbnail(
+        inkId: PdfService.inkIdFor(doc, i),
+        page: _rectFor(i),
+        paper: PaperStyle.light,
+        background: () => PdfService.renderPage(doc, i, dpi: 40),
+      ),
+    );
+    if (picked != null) await _goTo(picked);
+  }
+
+  Future<void> _createKnowledge() async {
+    final title = await askText(context,
+        title: 'Wissenseintrag zu diesem Dokument',
+        hint: 'Thema',
+        confirm: 'Erstellen');
+    if (title == null || title.trim().isEmpty || !mounted) return;
+    final entry = _s.objects.create(
+      type: ObjectType.knowledge,
+      title: title.trim(),
+      data: {
+        'body': 'Quelle: ${_doc!.displayTitle}, Seite ${_index + 1}',
+        'tags': <String>[],
+      },
+    );
+    _s.objects.link(entry.id, _doc!.id, type: 'source');
+    await openObject(context, entry);
+  }
+
+  Future<void> _export() async {
+    await _surfaceKey.currentState?.flush();
+    if (!mounted) return;
+    final doc = _doc!;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+        const SnackBar(content: Text('PDF mit Anmerkungen wird erstellt …')));
+    try {
+      final pages = <ExportPage>[];
+      for (var i = 0; i < doc.pageSizes.length; i++) {
+        final rect = _rectFor(i);
+        final img = await PdfService.renderPage(doc, i, dpi: 144);
+        final strokes = await InkStore(PdfService.inkIdFor(doc, i)).load();
+        pages.add(await renderPage(
+          page: rect,
+          strokes: strokes,
+          paintBackground: (canvas) {
+            canvas.drawRect(rect, Paint()..color = Colors.white);
+            if (img != null) {
+              canvas.drawImageRect(
+                  img,
+                  Rect.fromLTWH(
+                      0, 0, img.width.toDouble(), img.height.toDouble()),
+                  rect,
+                  Paint()..filterQuality = FilterQuality.medium);
+            }
+          },
+        ));
+      }
+      await sharePdf('${doc.displayTitle} (mit Notizen)', pages);
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('Export fehlgeschlagen: $e')));
+    }
+  }
+
+  Widget _nav(BuildContext context, InkController c) {
+    final doc = _doc!;
+    return EditorNavBar(
+      title: doc.displayTitle,
+      subtitle: 'PDF',
+      onTitleTap: () async {
+        final t = await askText(context,
+            title: 'Dokument umbenennen', initial: doc.title);
+        if (t == null || t.trim().isEmpty) return;
+        _s.objects.rename(doc.id, t.trim());
+        setState(() => _doc = _s.objects.get(doc.id));
+      },
+      center: PagePager(
+        index: _index,
+        count: doc.pageSizes.length,
+        onPrev: () => _goTo(_index - 1),
+        onNext: () => _goTo(_index + 1),
+        onTap: _showOverview,
+      ),
+      actions: [
+        ListenableBuilder(
+          listenable: c,
+          builder: (context, _) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              NavIconButton(
+                icon: Icons.undo,
+                tooltip: 'Rückgängig',
+                onTap: c.history.canUndo ? c.undo : null,
+              ),
+              NavIconButton(
+                icon: Icons.redo,
+                tooltip: 'Wiederholen',
+                onTap: c.history.canRedo ? c.redo : null,
+              ),
+            ],
+          ),
+        ),
+        NavIconButton(
+          icon: Icons.grid_view_rounded,
+          tooltip: 'Seitenübersicht',
+          onTap: _showOverview,
+        ),
+        EditorMoreMenu(
+          controller: c,
+          items: const [
+            PopupMenuItem(
+                value: 'knowledge', child: Text('Wissenseintrag erstellen')),
+            PopupMenuItem(
+                value: 'export', child: Text('Mit Notizen als PDF teilen')),
+          ],
+          onSelected: (v) async {
+            if (v == 'knowledge') await _createKnowledge();
+            if (v == 'export') await _export();
+          },
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final doc = _doc;
+    if (doc == null || doc.pageSizes.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: const Center(child: Text('Dokument nicht gefunden')),
+      );
+    }
+    final rect = _rectFor(_index);
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.pageDown): () =>
+            _goTo(_index + 1),
+        const SingleActivator(LogicalKeyboardKey.pageUp): () =>
+            _goTo(_index - 1),
+      },
+      child: Scaffold(
+        backgroundColor: PaperStyle.light.desk,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: InkSurface(
+                key: _surfaceKey,
+                inkId: PdfService.inkIdFor(doc, _index),
+                paper: Paper.light,
+                fitRect: rect,
+                lockToFit: true,
+                drawBounds: rect,
+                navBar: _nav,
+                onSaved: () => _s.objects.touch(doc.id),
+                backgroundBuilder: (camera) =>
+                    PdfPagePainter(camera: camera, image: _image, page: rect),
+              ),
+            ),
+            if (_failed)
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 24,
+                child: Center(
+                  child: FloatingPanel(
+                    padding: const EdgeInsets.all(14),
+                    child: Text(
+                      'Diese Seite konnte nicht dargestellt werden. '
+                      'Deine Notizen bleiben trotzdem erhalten.',
+                      style: TextStyle(color: context.mf.textMuted),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Zeichnet Schreibtisch, weißes Blatt und die gerenderte PDF-Seite.
+class PdfPagePainter extends CustomPainter {
+  PdfPagePainter({
+    required this.camera,
+    required this.image,
+    required this.page,
+  }) : super(repaint: Listenable.merge([camera, image]));
+
+  final Camera camera;
+  final ValueNotifier<ui.Image?> image;
+  final Rect page;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = PaperStyle.light.desk);
+    canvas.save();
+    canvas.translate(camera.offset.dx, camera.offset.dy);
+    canvas.scale(camera.scale);
+    canvas.drawRect(
+      page.shift(const Offset(0, 4)),
+      Paint()
+        ..color = const Color(0x33000000)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+    );
+    canvas.drawRect(page, Paint()..color = Colors.white);
+    final img = image.value;
+    if (img != null) {
+      canvas.drawImageRect(
+        img,
+        Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+        page,
+        Paint()..filterQuality = FilterQuality.medium,
+      );
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(PdfPagePainter old) =>
+      old.camera != camera || old.image != image || old.page != page;
+}

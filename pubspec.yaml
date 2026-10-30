@@ -1,7 +1,7 @@
 name: mindflow
 description: "MindFlow – Your thoughts. Connected."
 publish_to: none
-version: 0.3.0+3
+version: 0.4.0+4
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -15,6 +15,11 @@ dependencies:
   sqlite3: ^2.4.6
   # Bringt SQLite für iOS und Windows mit.
   sqlite3_flutter_libs: ^0.5.24
+  # PDFs anzeigen (Seiten als Bild), PDFs erzeugen und teilen.
+  printing: ^5.13.0
+  pdf: ^3.11.0
+  # Dateien auswählen (PDF-Import), iOS und Windows.
+  file_selector: ^1.0.3
 
 dev_dependencies:
   flutter_test:

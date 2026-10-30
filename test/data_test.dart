@@ -81,6 +81,50 @@ void main() {
     });
   });
 
+  group('Wissen und Dokumente', () {
+    test('Wissenseinträge: Text ist durchsuchbar, Hierarchie bleibt', () {
+      final it = objects.create(type: ObjectType.knowledge, title: 'Informatik');
+      final net = objects.create(
+          type: ObjectType.knowledge,
+          title: 'DHCP',
+          parentId: it.id,
+          data: {'body': 'Vergibt IP-Adressen automatisch', 'tags': ['netz']});
+      expect(objects.search('ip-adressen').map((o) => o.id), [net.id]);
+      expect(objects.children(it.id).map((o) => o.id), [net.id]);
+      expect(objects.get(net.id)!.tags, ['netz']);
+    });
+
+    test('Verknüpfen, doppelt verhindern, lösen', () {
+      final a = objects.create(type: ObjectType.knowledge, title: 'DHCP');
+      final b = objects.create(type: ObjectType.knowledge, title: 'TCP/IP');
+      objects.linkOnce(a.id, b.id);
+      objects.linkOnce(b.id, a.id);
+      expect(objects.linkedObjects(a.id).map((o) => o.id), [b.id]);
+      objects.unlink(b.id, a.id);
+      expect(objects.linkedObjects(a.id), isEmpty);
+      expect(objects.isLinked(a.id, b.id), isFalse);
+    });
+
+    test('Gelöschte Ziele erscheinen nicht als Verknüpfung', () {
+      final a = objects.create(type: ObjectType.knowledge, title: 'A');
+      final b = objects.create(type: ObjectType.notebook, title: 'B');
+      objects.link(a.id, b.id);
+      objects.trash(b.id);
+      expect(objects.linkedObjects(a.id), isEmpty);
+    });
+
+    test('Dokumente: Seitengrößen und Zuletzt-Liste', () {
+      final d = objects.create(
+          type: ObjectType.document,
+          title: 'Skript',
+          data: {'file': 'x.pdf', 'sizes': [[595, 842], [842, 595]]});
+      final o = objects.get(d.id)!;
+      expect(o.pageSizes.length, 2);
+      expect(o.pageSizes[1].width, 842);
+      expect(objects.recent().map((x) => x.id), contains(d.id));
+    });
+  });
+
   group('Canvas', () {
     test('Karten und Verbindungen bleiben gespeichert', () {
       final board = objects.create(type: ObjectType.board);

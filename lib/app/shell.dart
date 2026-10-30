@@ -6,6 +6,7 @@ import '../features/common/collection_screen.dart';
 import '../features/common/coming_soon.dart';
 import '../features/common/create_dialogs.dart';
 import '../features/home/home_screen.dart';
+import '../features/knowledge/knowledge_screen.dart';
 import '../features/search/search_screen.dart';
 import 'sections.dart';
 import 'services.dart';
@@ -59,7 +60,20 @@ class _AppShellState extends State<AppShell> {
       case Section.archive:
         return const ArchiveScreen();
       case Section.documents:
+        return const CollectionScreen(
+          type: ObjectType.document,
+          title: 'Dokumente',
+          subtitle: 'PDFs lesen, markieren und hineinschreiben',
+          createLabel: 'PDF importieren',
+          onCreate: importDocument,
+          emptyIcon: Icons.picture_as_pdf_outlined,
+          emptyTitle: 'Noch keine Dokumente',
+          emptyMessage:
+              'Importiere eine PDF – z. B. ein Skript oder Arbeitsblatt – und '
+              'schreib mit dem Stift direkt hinein. Das Original bleibt unverändert.',
+        );
       case Section.knowledge:
+        return const KnowledgeScreen();
       case Section.study:
         return ComingSoonScreen(section: _section);
     }

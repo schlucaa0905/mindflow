@@ -234,6 +234,24 @@ class InkController extends ChangeNotifier {
     settings.update(() => settings.stylusOnly = true);
   }
 
+  // --- Zeichenbereich ----------------------------------------------------
+
+  /// Bereich, in dem geschrieben werden darf (z. B. das Blatt).
+  /// null = überall (Canvas).
+  Rect? drawBounds;
+
+  /// Darf an dieser Stelle ein Strich beginnen?
+  bool canDrawAt(Offset world) =>
+      drawBounds == null || drawBounds!.contains(world);
+
+  /// Hält einen Punkt auf dem Blatt (Striche enden am Blattrand).
+  Offset clampToBounds(Offset world) {
+    final b = drawBounds;
+    if (b == null) return world;
+    return Offset(world.dx.clamp(b.left, b.right).toDouble(),
+        world.dy.clamp(b.top, b.bottom).toDouble());
+  }
+
   // --- Schreiben ---------------------------------------------------------
 
   /// true, wenn die Formerkennung den aktuellen Strich ersetzt hat.
@@ -262,7 +280,7 @@ class InkController extends ChangeNotifier {
 
   void extendStroke(Offset world, double pressure) {
     if (shapeLocked) return;
-    live.extend(world, pressure, 0.6 / camera.scale);
+    live.extend(clampToBounds(world), pressure, 0.6 / camera.scale);
   }
 
   /// "Zeichnen und halten": versucht, den aktuellen Strich als Form zu
@@ -323,7 +341,7 @@ class InkController extends ChangeNotifier {
   void updateShape(Offset world) {
     final a = _shapeStart;
     if (a == null) return;
-    live.setPoints(shapePoints(shapeKind, a, world, camera.scale),
+    live.setPoints(shapePoints(shapeKind, a, clampToBounds(world), camera.scale),
         width: penWidth / camera.scale,
         color: penColor,
         tool: InkTool.ballpoint);
@@ -565,7 +583,8 @@ class InkController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Striche, die überwiegend innerhalb des Polygons liegen.
+  /// Striche, die das Lasso berühren – wie bei Goodnotes 6 reicht schon
+  /// ein kleiner Teil des Strichs innerhalb oder auf der Lasso-Linie.
   static List<Stroke> strokesInPolygon(InkScene scene, List<Offset> poly) {
     var box = Rect.fromPoints(poly.first, poly.first);
     for (final p in poly) {
@@ -574,19 +593,37 @@ class InkController extends ChangeNotifier {
     final result = <Stroke>[];
     for (final s in scene.strokes) {
       if (s.deleted || !s.bounds.overlaps(box)) continue;
-      final n = s.pointCount;
-      final step = math.max(1, n ~/ 24);
-      var inside = 0, total = 0;
-      for (var i = 0; i < n; i += step) {
-        total++;
-        if (pointInPolygon(
-            Offset(s.points[i * 3], s.points[i * 3 + 1]), poly)) {
-          inside++;
-        }
-      }
-      if (total > 0 && inside / total >= 0.5) result.add(s);
+      if (_strokeTouchesPolygon(s, poly)) result.add(s);
     }
     return result;
+  }
+
+  static bool _strokeTouchesPolygon(Stroke s, List<Offset> poly) {
+    final n = s.pointCount;
+    Offset pt(int i) => Offset(s.points[i * 3], s.points[i * 3 + 1]);
+    // 1. Liegt irgendein Punkt innerhalb?
+    for (var i = 0; i < n; i++) {
+      if (pointInPolygon(pt(i), poly)) return true;
+    }
+    // 2. Schneidet der Strich die Lasso-Linie (z. B. sehr dünnes Lasso)?
+    final step = math.max(1, n ~/ 80);
+    for (var i = 0; i + step < n; i += step) {
+      final a = pt(i), b = pt(i + step);
+      for (var j = 0; j < poly.length; j++) {
+        final c = poly[j], d = poly[(j + 1) % poly.length];
+        if (segmentsIntersect(a, b, c, d)) return true;
+      }
+    }
+    return false;
+  }
+
+  /// Schneiden sich die Strecken a–b und c–d?
+  static bool segmentsIntersect(Offset a, Offset b, Offset c, Offset d) {
+    double cross(Offset o, Offset p, Offset q) =>
+        (p.dx - o.dx) * (q.dy - o.dy) - (p.dy - o.dy) * (q.dx - o.dx);
+    final d1 = cross(c, d, a), d2 = cross(c, d, b);
+    final d3 = cross(a, b, c), d4 = cross(a, b, d);
+    return ((d1 > 0) != (d2 > 0)) && ((d3 > 0) != (d4 > 0));
   }
 
   void beginMoveSelection(Offset world) => _beginTransform(world, scale: false);

@@ -205,6 +205,53 @@ void main() {
       expect(alive(c).single.bounds.top, closeTo(before.top, 0.01));
     });
 
+    test('Lasso: ein kleiner Teil des Strichs genügt (wie Goodnotes 6)', () {
+      final c = withLine()..setTool(ToolMode.lasso);
+      // Lasso umschließt nur den Anfang (x 0..10) der 100 langen Linie.
+      c.beginLasso(const Offset(-5, -5));
+      c.extendLasso(const Offset(10, -5));
+      c.extendLasso(const Offset(10, 5));
+      c.extendLasso(const Offset(-5, 5));
+      c.endLasso();
+      expect(c.selection.length, 1);
+    });
+
+    test('Lasso: Strich, der die Lasso-Linie nur kreuzt, wird gewählt', () {
+      final c = withLine()..setTool(ToolMode.lasso);
+      // Sehr schmales Dreieck, das die Linie bei x=50 durchschneidet,
+      // ohne dass ein Linienpunkt innen liegt.
+      c.beginLasso(const Offset(50.5, -30));
+      c.extendLasso(const Offset(50.9, -30));
+      c.extendLasso(const Offset(50.7, 30));
+      c.endLasso();
+      expect(c.selection.length, 1);
+    });
+
+    test('Lasso: weit entfernte Striche bleiben unberührt', () {
+      final c = withLine()..setTool(ToolMode.lasso);
+      c.beginLasso(const Offset(0, 100));
+      c.extendLasso(const Offset(50, 100));
+      c.extendLasso(const Offset(50, 150));
+      c.endLasso();
+      expect(c.selection, isEmpty);
+    });
+
+    test('Nur auf dem Blatt schreiben', () {
+      final c = InkController(stylusOnly: true)
+        ..drawBounds = const Rect.fromLTWH(0, 0, 100, 100);
+      expect(c.canDrawAt(const Offset(50, 50)), isTrue);
+      expect(c.canDrawAt(const Offset(150, 50)), isFalse);
+      c.beginStroke(const Offset(90, 50), 0.5);
+      for (var x = 92.0; x < 200; x += 2) {
+        c.extendStroke(Offset(x, 50), 0.5);
+      }
+      c.commitStroke();
+      final s = c.scene.strokes.single;
+      for (var i = 0; i < s.points.length; i += 3) {
+        expect(s.points[i], lessThanOrEqualTo(100));
+      }
+    });
+
     test('Lasso skaliert um die linke obere Ecke', () {
       final c = withLine()..setTool(ToolMode.lasso);
       c.selection = alive(c);

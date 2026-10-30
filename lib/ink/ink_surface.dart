@@ -6,11 +6,13 @@ import 'package:flutter/services.dart';
 import '../app/services.dart';
 import '../app/theme.dart';
 import '../storage/ink_store.dart';
+import '../ui/editor_bar.dart';
 import 'camera.dart';
 import 'ink_canvas_view.dart';
 import 'ink_controller.dart';
 import 'ink_session.dart';
 import 'ink_toolbar.dart';
+import 'tool_row.dart';
 
 /// Eine fertige Schreibfläche für ein Objekt: Zeichnen, Werkzeugleiste,
 /// automatisches Laden und Speichern. Notizbuch und Canvas nutzen dieselbe.
@@ -30,7 +32,9 @@ class InkSurface extends StatefulWidget {
     this.toolbarLeading = const [],
     this.toolbarTrailing = const [],
     this.showInkTools = true,
-    this.toolbarInsets = const EdgeInsets.fromLTRB(12, 64, 12, 16),
+    this.toolbarInsets = const EdgeInsets.fromLTRB(12, 12, 12, 16),
+    this.navBar,
+    this.drawBounds,
     this.onSaved,
     this.onControllerReady,
     this.onBackgroundTap,
@@ -56,6 +60,12 @@ class InkSurface extends StatefulWidget {
   /// Abstand der angedockten Leiste zu den Rändern (Platz für Kopfzeile,
   /// Seitennavigation usw.).
   final EdgeInsets toolbarInsets;
+
+  /// Navigationszeile oben (zurück, Titel, Seiten, Menü).
+  final Widget Function(BuildContext context, InkController c)? navBar;
+
+  /// Nur hier darf geschrieben werden (z. B. das Blatt). null = überall.
+  final Rect? drawBounds;
   final VoidCallback? onSaved;
   final ValueChanged<InkController>? onControllerReady;
   final ValueChanged<Offset>? onBackgroundTap;
@@ -83,6 +93,7 @@ class InkSurfaceState extends State<InkSurface> {
       settings: shared,
       darkPaper: PaperStyle.of(widget.paper).sheet.computeLuminance() < 0.3,
     );
+    controller.drawBounds = widget.drawBounds;
     session = InkSession(
       controller: controller,
       store: InkStore(widget.inkId),
@@ -96,6 +107,12 @@ class InkSurfaceState extends State<InkSurface> {
 
   /// Sofort speichern (z. B. vor dem Duplizieren einer Seite).
   Future<void> flush() => session.saveNow();
+
+  @override
+  void didUpdateWidget(InkSurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    controller.drawBounds = widget.drawBounds;
+  }
 
   double _fitScale(Size view, Rect r) => math.max(
       0.05,
@@ -249,15 +266,28 @@ class InkSurfaceState extends State<InkSurface> {
     });
   }
 
-  /// Die Leiste liegt in einer eigenen, durchlässigen Ebene über der Fläche.
+  /// Ist die Leiste fest oben eingebaut (Goodnotes-Stil)?
+  bool get _integrated => _settings.dock == ToolbarDock.top && _dragPos == null;
+
+  /// Frei verschiebbare Leiste in einer durchlässigen Ebene über der Fläche
+  /// (nur wenn sie nicht oben eingebaut ist).
   Widget _toolbar(Size size) {
     return Positioned.fill(
       child: ListenableBuilder(
         listenable: _settings,
-        builder: (context, _) => Stack(children: [_positionedBar(size)]),
+        builder: (context, _) => Stack(children: [
+          if (!_integrated) _positionedBar(size),
+        ]),
       ),
     );
   }
+
+  void _detach() => _settings.update(() {
+        _settings.dock = ToolbarDock.floating;
+        _settings.floatX = 0.3;
+        _settings.floatY = 0.05;
+        _settings.collapsed = false;
+      });
 
   Widget _positionedBar(Size size) {
     return Builder(
@@ -353,7 +383,30 @@ class InkSurfaceState extends State<InkSurface> {
     return Focus(
       autofocus: true,
       onKeyEvent: _onKey,
-      child: LayoutBuilder(builder: (context, constraints) {
+      child: Column(
+        children: [
+          ListenableBuilder(
+            listenable: _settings,
+            builder: (context, _) {
+              final nav = widget.navBar?.call(context, controller);
+              final tools = _integrated && widget.showInkTools
+                  ? ToolRow(controller: controller, onDetach: _detach)
+                  : null;
+              if (nav == null && tools == null) return const SizedBox.shrink();
+              return EditorTopBar(
+                nav: nav ?? const SizedBox.shrink(),
+                tools: tools,
+              );
+            },
+          ),
+          Expanded(child: _surface()),
+        ],
+      ),
+    );
+  }
+
+  Widget _surface() {
+    return LayoutBuilder(builder: (context, constraints) {
         final size = constraints.biggest;
         _onSize(size);
         if (!_fitted && widget.fitRect != null && size.width > 0) {
@@ -380,7 +433,6 @@ class InkSurfaceState extends State<InkSurface> {
             _toolbar(size),
           ],
         );
-      }),
-    );
+      });
   }
 }

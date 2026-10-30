@@ -62,6 +62,16 @@ class HomeScreen extends StatelessWidget {
                   onTap: () => createBoard(context),
                 ),
                 _QuickAction(
+                  icon: Icons.picture_as_pdf_outlined,
+                  label: 'PDF importieren',
+                  onTap: () => importDocument(context),
+                ),
+                _QuickAction(
+                  icon: Icons.hub_outlined,
+                  label: 'Wissenseintrag',
+                  onTap: () => createKnowledge(context),
+                ),
+                _QuickAction(
                   icon: Icons.search,
                   label: 'Suchen',
                   onTap: () => onNavigate(Section.search),

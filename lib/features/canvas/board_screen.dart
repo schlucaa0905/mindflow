@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../app/navigation.dart';
 import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
@@ -10,7 +11,11 @@ import '../../ink/camera.dart';
 import '../../ink/ink_canvas_view.dart';
 import '../../ink/ink_controller.dart';
 import '../../ink/ink_surface.dart';
+import '../../ui/editor_bar.dart';
 import '../../ui/widgets.dart';
+import '../common/object_info.dart';
+import '../common/object_picker.dart';
+import '../notebook/notebook_screen.dart';
 
 /// Die vier Arbeitsmodi des Canvas.
 enum BoardMode {
@@ -203,6 +208,10 @@ class _BoardScreenState extends State<BoardScreen> {
     final edge = _s.canvas.createEdge(widget.boardId, from, target.id);
     if (edge != null) {
       setState(() => _edges.add(edge));
+      // Verweisen beide Karten auf Objekte, werden auch diese verknüpft –
+      // so taucht die Verbindung z. B. im Wissenseintrag auf.
+      final a = _node(from)?.refObjectId, b = target.refObjectId;
+      if (a != null && b != null) _s.objects.linkOnce(a, b, type: 'canvas');
     } else {
       // Gab es schon – dann lösen wir sie.
       final t = target.id;
@@ -311,7 +320,7 @@ class _BoardScreenState extends State<BoardScreen> {
         behavior: HitTestBehavior.opaque,
         onTap: () => setState(() => _selected = n.id),
         onDoubleTap:
-            _mode == BoardMode.select ? () => _editNode(n) : null,
+            _mode == BoardMode.select ? () => _openNode(n) : null,
         onPanStart: (d) => _panStart(n, d),
         onPanUpdate: (d) => _panUpdate(n, d),
         onPanEnd: (_) => _panEnd(n),
@@ -333,6 +342,129 @@ class _BoardScreenState extends State<BoardScreen> {
     );
   }
 
+  /// Verweis auf ein anderes Objekt (Wissenseintrag, PDF, Notizbuch …)
+  /// als Karte einfügen.
+  Future<void> _addReference() async {
+    final o = await pickObject(context,
+        title: 'Was soll auf den Canvas?', exclude: {widget.boardId});
+    if (o == null || !mounted) return;
+    final cam = _ink?.camera;
+    if (cam == null) return;
+    final center = cam.toWorld(Offset(_viewSize.width / 2, _viewSize.height / 2)) +
+        Offset((_nodes.length % 5) * 18.0, (_nodes.length % 5) * 18.0);
+    final n = _s.canvas.createNode(widget.boardId,
+        x: center.dx - 110,
+        y: center.dy - 40,
+        h: 80,
+        text: describeTitle(_s.objects, o));
+    n.refObjectId = o.id;
+    _s.canvas.updateNode(n);
+    _s.objects.linkOnce(o.id, widget.boardId, type: 'canvas');
+    _changed();
+    _ink?.setDrawingEnabled(false);
+    setState(() {
+      _nodes.add(n);
+      _selected = n.id;
+      _mode = BoardMode.select;
+    });
+  }
+
+  /// Doppeltippen: Verweis-Karten öffnen ihr Ziel, normale Karten den Text.
+  Future<void> _openNode(CanvasNode n) async {
+    final ref = n.refObjectId;
+    if (ref != null) {
+      final o = _s.objects.get(ref);
+      if (o != null && o.deletedAt == null) {
+        await openObject(context, o);
+        return;
+      }
+    }
+    await _editNode(n);
+  }
+
+  Widget _nav(BuildContext context, InkController c) {
+    final board = _board!;
+    final hasSelection = _selected != null && _mode != BoardMode.write;
+    return EditorNavBar(
+      title: board.displayTitle,
+      subtitle: 'Canvas',
+      onTitleTap: _rename,
+      center: _ModeSwitch(mode: _mode, onChanged: _setMode),
+      actions: [
+        if (hasSelection) ...[
+          NavIconButton(
+            icon: Icons.notes,
+            tooltip: 'Text bearbeiten',
+            onTap: () {
+              final n = _node(_selected!);
+              if (n != null) _editNode(n);
+            },
+          ),
+          NavIconButton(
+            icon: Icons.delete_outline,
+            tooltip: 'Karte löschen',
+            onTap: _deleteSelected,
+          ),
+        ],
+        NavIconButton(
+          icon: Icons.add_box_outlined,
+          tooltip: 'Neue Karte',
+          onTap: () => _addCard(),
+        ),
+        NavIconButton(
+          icon: Icons.add_link,
+          tooltip: 'Wissen, PDF oder Notizbuch einfügen',
+          onTap: _addReference,
+        ),
+        ListenableBuilder(
+          listenable: c,
+          builder: (context, _) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              NavIconButton(
+                icon: Icons.undo,
+                tooltip: 'Rückgängig (Handschrift)',
+                onTap: c.history.canUndo ? c.undo : null,
+              ),
+              NavIconButton(
+                icon: Icons.redo,
+                tooltip: 'Wiederholen (Handschrift)',
+                onTap: c.history.canRedo ? c.redo : null,
+              ),
+            ],
+          ),
+        ),
+        EditorMoreMenu(
+          controller: c,
+          items: const [
+            PopupMenuItem(value: 'fit', child: Text('Alles zeigen')),
+          ],
+          onSelected: (v) async {
+            if (v == 'fit') _fitAll();
+          },
+        ),
+      ],
+    );
+  }
+
+  /// Zoomt so, dass alle Karten und Striche zu sehen sind.
+  void _fitAll() {
+    final c = _ink;
+    if (c == null || _viewSize.isEmpty) return;
+    Rect? r = c.scene.contentBounds();
+    for (final n in _nodes) {
+      final nr = Rect.fromLTWH(n.x, n.y, n.w, n.h);
+      r = r == null ? nr : r.expandToInclude(nr);
+    }
+    if (r == null) {
+      c.camera.reset();
+      return;
+    }
+    final sx = _viewSize.width / (r.width + 80);
+    final sy = _viewSize.height / (r.height + 80);
+    c.camera.lookAt(r.center, sx < sy ? sx : sy, _viewSize);
+  }
+
   @override
   Widget build(BuildContext context) {
     final board = _board;
@@ -341,7 +473,6 @@ class _BoardScreenState extends State<BoardScreen> {
     }
     final paper = PaperStyle.of(board.paper);
     final mf = context.mf;
-    final hasSelection = _selected != null && _mode != BoardMode.write;
 
     return CallbackShortcuts(
       bindings: {
@@ -359,8 +490,9 @@ class _BoardScreenState extends State<BoardScreen> {
                 child: InkSurface(
                   inkId: board.id,
                   paper: board.paper,
-                  toolbarInsets: const EdgeInsets.fromLTRB(12, 64, 12, 76),
+                  toolbarInsets: const EdgeInsets.fromLTRB(12, 12, 12, 76),
                   showInkTools: _mode == BoardMode.write,
+                  navBar: _nav,
                   onSaved: _changed,
                   onControllerReady: (c) {
                     _ink = c;
@@ -370,77 +502,6 @@ class _BoardScreenState extends State<BoardScreen> {
                   backgroundBuilder: (camera) =>
                       DotGridPainter(camera, paper.line, fill: paper.sheet),
                   overlayBuilder: (context, c) => _overlay(context, c, paper),
-                  toolbarLeading: [
-                    for (final m in BoardMode.values)
-                      ToolButton(
-                        icon: m.icon,
-                        label: m.label,
-                        selected: _mode == m,
-                        onTap: () => _setMode(m),
-                      ),
-                  ],
-                  toolbarTrailing: [
-                    ToolButton(
-                      icon: Icons.add_box_outlined,
-                      label: 'Neue Karte',
-                      onTap: () => _addCard(),
-                    ),
-                    if (hasSelection) ...[
-                      ToolButton(
-                        icon: Icons.notes,
-                        label: 'Text bearbeiten',
-                        onTap: () {
-                          final n = _node(_selected!);
-                          if (n != null) _editNode(n);
-                        },
-                      ),
-                      ToolButton(
-                        icon: Icons.delete_outline,
-                        label: 'Karte löschen',
-                        danger: true,
-                        onTap: _deleteSelected,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              // Kopfzeile
-              Positioned(
-                top: 0,
-                left: 0,
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-                    child: FloatingPanel(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ToolButton(
-                            icon: Icons.arrow_back,
-                            label: 'Zurück',
-                            onTap: () => Navigator.of(context).maybePop(),
-                          ),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 260),
-                            child: InkWell(
-                              onTap: _rename,
-                              borderRadius: BorderRadius.circular(8),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 10),
-                                child: Text(board.displayTitle,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: mf.text)),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
                 ),
               ),
               // Hinweis zum aktuellen Modus
@@ -473,6 +534,49 @@ class _BoardScreenState extends State<BoardScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Moderner Umschalter für die vier Canvas-Modi.
+class _ModeSwitch extends StatelessWidget {
+  const _ModeSwitch({required this.mode, required this.onChanged});
+
+  final BoardMode mode;
+  final ValueChanged<BoardMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: mf.surfaceRaised,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final m in BoardMode.values)
+            Tooltip(
+              message: m.label,
+              child: GestureDetector(
+                onTap: () => onChanged(m),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  width: 40,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: mode == m ? mf.accent : Colors.transparent,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Icon(m.icon,
+                      size: 18, color: mode == m ? Colors.white : mf.text),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -514,14 +618,39 @@ class _NodeCard extends StatelessWidget {
               color: Color(0x26000000), blurRadius: 12, offset: Offset(0, 4)),
         ],
       ),
-      child: Text(
-        empty ? 'Doppeltippen zum Schreiben' : node.text,
-        overflow: TextOverflow.fade,
-        style: textStyle.copyWith(
-          color: empty ? fg.withValues(alpha: 0.4) : fg,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
+      child: node.refObjectId == null
+          ? Text(
+              empty ? 'Doppeltippen zum Schreiben' : node.text,
+              overflow: TextOverflow.fade,
+              style: textStyle.copyWith(
+                color: empty ? fg.withValues(alpha: 0.4) : fg,
+                fontWeight: FontWeight.w500,
+              ),
+            )
+          // Verweis-Karte: Symbol + Titel, Doppeltippen öffnet das Ziel.
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.link, size: 16, color: accent),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    node.text,
+                    overflow: TextOverflow.fade,
+                    style: textStyle.copyWith(
+                        color: fg, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }
