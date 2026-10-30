@@ -32,6 +32,17 @@ class InkController extends ChangeNotifier {
   /// true: nur der Stift zeichnet, Finger verschieben und zoomen.
   bool stylusOnly;
 
+  /// false: niemand zeichnet, jede Eingabe verschiebt die Fläche
+  /// (z. B. im Canvas-Modus "Auswählen" oder "Navigieren").
+  bool drawingEnabled = true;
+
+  void setDrawingEnabled(bool v) {
+    if (drawingEnabled == v) return;
+    drawingEnabled = v;
+    if (!v) live.cancel();
+    notifyListeners();
+  }
+
   final List<Stroke> _eraseBatch = [];
 
   void setTool(ToolMode t) {
@@ -54,8 +65,21 @@ class InkController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// true, sobald der Nutzer selbst umgeschaltet hat – dann greift die
+  /// Automatik nicht mehr.
+  bool _inputModeChosenByUser = false;
+
   void setStylusOnly(bool v) {
     stylusOnly = v;
+    _inputModeChosenByUser = true;
+    notifyListeners();
+  }
+
+  /// Wird bei jeder Stift-Berührung aufgerufen: Ist ein Stift im Spiel,
+  /// sollen Finger navigieren statt zeichnen (wie bei Goodnotes).
+  void onStylusDetected() {
+    if (stylusOnly || _inputModeChosenByUser) return;
+    stylusOnly = true;
     notifyListeners();
   }
 
@@ -134,8 +158,8 @@ class InkController extends ChangeNotifier {
       camera.reset();
       return;
     }
-    final s = (view.width / r.width).clamp(0.0, view.height / r.height) * 0.9;
-    camera.lookAt(r.center, s.toDouble(), view);
+    final sx = view.width / r.width, sy = view.height / r.height;
+    camera.lookAt(r.center, (sx < sy ? sx : sy) * 0.9, view);
   }
 
   @override

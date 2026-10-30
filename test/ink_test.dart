@@ -93,6 +93,19 @@ void main() {
     });
   });
 
+  group('Eingabemodus', () {
+    test('Stift schaltet automatisch auf "Nur Stift"', () {
+      final c = InkController(stylusOnly: false)..onStylusDetected();
+      expect(c.stylusOnly, isTrue);
+    });
+
+    test('Eigene Wahl des Nutzers wird respektiert', () {
+      final c = InkController(stylusOnly: true)..setStylusOnly(false);
+      c.onStylusDetected();
+      expect(c.stylusOnly, isFalse);
+    });
+  });
+
   group('Kamera', () {
     test('Zoom hält den Punkt unter den Fingern fest', () {
       final cam = Camera()..panBy(const Offset(40, -20));

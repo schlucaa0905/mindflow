@@ -21,9 +21,21 @@ import 'stroke_renderer.dart';
 /// - Maus: linke Taste zeichnet, rechte/mittlere verschiebt, Rad zoomt.
 /// - Trackpad: zwei Finger verschieben, Pinch zoomt.
 class InkCanvasView extends StatefulWidget {
-  const InkCanvasView({super.key, required this.controller});
+  const InkCanvasView({
+    super.key,
+    required this.controller,
+    this.background,
+    this.onBackgroundTap,
+  });
 
   final InkController controller;
+
+  /// Hintergrund (Seite mit Linien, Punktraster …). Standard: Punktraster.
+  final CustomPainter? background;
+
+  /// Kurzes Tippen auf eine leere Stelle, wenn Zeichnen aus ist.
+  /// Liefert die Weltkoordinate.
+  final ValueChanged<Offset>? onBackgroundTap;
 
   @override
   State<InkCanvasView> createState() => _InkCanvasViewState();
@@ -42,6 +54,8 @@ class _InkCanvasViewState extends State<InkCanvasView> {
   int? _panPointer;
   Offset? _panLast;
   double _lastTrackpadScale = 1;
+  int? _tapPointer;
+  Offset? _tapStart;
 
   double _pressure(PointerEvent e) {
     if (e.kind == PointerDeviceKind.stylus ||
@@ -55,6 +69,7 @@ class _InkCanvasViewState extends State<InkCanvasView> {
   }
 
   bool _wantsDraw(PointerDownEvent e) {
+    if (!c.drawingEnabled) return false;
     switch (e.kind) {
       case PointerDeviceKind.stylus:
       case PointerDeviceKind.invertedStylus:
@@ -103,6 +118,10 @@ class _InkCanvasViewState extends State<InkCanvasView> {
   // --- Ereignisse -------------------------------------------------------
 
   void _onDown(PointerDownEvent e) {
+    if (e.kind == PointerDeviceKind.stylus ||
+        e.kind == PointerDeviceKind.invertedStylus) {
+      c.onStylusDetected();
+    }
     if (_drawPointer == null && _wantsDraw(e)) {
       _drawPointer = e.pointer;
       _drawKind = e.kind;
@@ -110,7 +129,16 @@ class _InkCanvasViewState extends State<InkCanvasView> {
       _startDraw(e);
       return;
     }
-    if (e.kind == PointerDeviceKind.mouse) {
+    // Mögliches Antippen einer leeren Stelle merken.
+    if (_touches.isEmpty && _panPointer == null) {
+      _tapPointer = e.pointer;
+      _tapStart = e.localPosition;
+    } else {
+      _tapPointer = null;
+    }
+    if (e.kind == PointerDeviceKind.mouse ||
+        e.kind == PointerDeviceKind.stylus ||
+        e.kind == PointerDeviceKind.invertedStylus) {
       _panPointer = e.pointer;
       _panLast = e.localPosition;
       return;
@@ -125,6 +153,11 @@ class _InkCanvasViewState extends State<InkCanvasView> {
   }
 
   void _onMove(PointerMoveEvent e) {
+    if (e.pointer == _tapPointer &&
+        _tapStart != null &&
+        (e.localPosition - _tapStart!).distance > 8) {
+      _tapPointer = null;
+    }
     if (e.pointer == _drawPointer) {
       if (e.kind == PointerDeviceKind.touch) _touches[e.pointer] = e.localPosition;
       _moveDraw(e);
@@ -160,6 +193,10 @@ class _InkCanvasViewState extends State<InkCanvasView> {
   }
 
   void _onUp(PointerEvent e, {required bool commit}) {
+    if (e.pointer == _tapPointer && e is PointerUpEvent) {
+      widget.onBackgroundTap?.call(c.camera.toWorld(e.localPosition));
+    }
+    if (e.pointer == _tapPointer) _tapPointer = null;
     if (e.pointer == _drawPointer) _endDraw(commit: commit);
     if (e.pointer == _panPointer) {
       _panPointer = null;
@@ -200,7 +237,9 @@ class _InkCanvasViewState extends State<InkCanvasView> {
         fit: StackFit.expand,
         children: [
           RepaintBoundary(
-            child: CustomPaint(painter: _GridPainter(c.camera)),
+            child: CustomPaint(
+                painter: widget.background ??
+                    DotGridPainter(c.camera, const Color(0x22FFFFFF))),
           ),
           RepaintBoundary(
             child: CustomPaint(painter: _ScenePainter(c.scene, c.camera)),
@@ -215,14 +254,20 @@ class _InkCanvasViewState extends State<InkCanvasView> {
 }
 
 /// Dezentes Punktraster, damit Bewegung und Zoom sichtbar sind.
-class _GridPainter extends CustomPainter {
-  _GridPainter(this.camera) : super(repaint: camera);
+class DotGridPainter extends CustomPainter {
+  DotGridPainter(this.camera, this.color, {this.fill})
+      : super(repaint: camera);
 
   final Camera camera;
+  final Color color;
+
+  /// Optionale Hintergrundfarbe der Fläche.
+  final Color? fill;
   static const double _worldSpacing = 40;
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (fill != null) canvas.drawRect(Offset.zero & size, Paint()..color = fill!);
     var spacing = _worldSpacing * camera.scale;
     // Beim Herauszoomen gröberes Raster, damit es nicht zu dicht wird.
     while (spacing < 14) {
@@ -240,14 +285,15 @@ class _GridPainter extends CustomPainter {
       ui.PointMode.points,
       pts,
       Paint()
-        ..color = const Color(0x22FFFFFF)
+        ..color = color
         ..strokeWidth = 1.6
         ..strokeCap = StrokeCap.round,
     );
   }
 
   @override
-  bool shouldRepaint(_GridPainter old) => old.camera != camera;
+  bool shouldRepaint(DotGridPainter old) =>
+      old.camera != camera || old.color != color || old.fill != fill;
 }
 
 /// Zeichnet die fertigen Striche – nur Abschnitte, die sichtbar sind.
