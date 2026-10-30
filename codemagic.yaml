@@ -1,0 +1,45 @@
+# iOS-Build in der Cloud (ersetzt den fehlenden Mac).
+# Vor dem ersten Lauf in der Codemagic-Oberfläche einrichten:
+#   1. App-Store-Connect-API-Schlüssel unter "Integrations" hinzufügen
+#      und ihm den Namen geben, der unten bei app_store_connect steht.
+#   2. BUNDLE_ID unten durch deine eigene ersetzen (muss mit der App in
+#      App Store Connect übereinstimmen).
+# Details können sich ändern – bei Fehlern die aktuelle Codemagic-Doku zu
+# "Flutter iOS code signing" prüfen.
+
+workflows:
+  ios-testflight:
+    name: iOS → TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: MindFlow ASC Key
+    environment:
+      flutter: stable
+      xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: de.DEINNAME.mindflow
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+    scripts:
+      - name: Pakete laden
+        script: flutter pub get
+      - name: Tests
+        script: flutter test
+      - name: Signierung einrichten
+        script: xcode-project use-profiles
+      - name: IPA bauen
+        script: |
+          flutter build ipa --release \
+            --build-number=$BUILD_NUMBER \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

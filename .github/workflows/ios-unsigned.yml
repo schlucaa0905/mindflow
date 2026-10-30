@@ -1,0 +1,49 @@
+# Baut eine UNSIGNIERTE iOS-App (.ipa) auf einem Mac in der Cloud – kostenlos.
+# Signiert und installiert wird danach am Windows-PC mit Sideloadly
+# und einer normalen (kostenlosen) Apple-ID. Siehe README, Schritt 3.
+
+name: iOS-App bauen (unsigniert)
+
+on:
+  workflow_dispatch: # Knopf "Run workflow" auf GitHub
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: iOS-Projektdateien erzeugen (falls noch nicht vorhanden)
+        run: |
+          if [ ! -d ios ]; then
+            flutter create --org de.mindflow --project-name mindflow --platforms=ios .
+          fi
+
+      - name: Pakete laden
+        run: flutter pub get
+
+      - name: Tests
+        run: flutter test
+
+      - name: iOS-App bauen (ohne Signatur)
+        run: flutter build ios --release --no-codesign
+
+      - name: Als .ipa verpacken
+        run: |
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qr MindFlow-unsigniert.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MindFlow-ipa
+          path: MindFlow-unsigniert.ipa
+          retention-days: 14
