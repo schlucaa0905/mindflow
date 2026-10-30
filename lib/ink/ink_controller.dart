@@ -9,44 +9,31 @@ import 'camera.dart';
 import 'ink_history.dart';
 import 'ink_scene.dart';
 import 'live_stroke.dart';
+import 'shape_recognizer.dart';
 import 'stroke.dart';
+import 'tool_settings.dart';
 
-enum ToolMode { pen, highlighter, eraser, lasso, shape }
-
-/// Stiftart: Füller reagiert auf Druck, Kugelschreiber bleibt gleich dick.
-enum PenType {
-  fountain('Füller'),
-  ballpoint('Kugelschreiber');
-
-  const PenType(this.label);
-  final String label;
-}
-
-enum EraserMode {
-  stroke('Ganze Striche'),
-  area('Nur berührte Stellen');
-
-  const EraserMode(this.label);
-  final String label;
-}
-
-enum ShapeKind {
-  line('Linie'),
-  arrow('Pfeil'),
-  rectangle('Rechteck'),
-  ellipse('Ellipse');
-
-  const ShapeKind(this.label);
-  final String label;
-}
+export 'tool_settings.dart';
 
 /// Bündelt alles, was eine Zeichenfläche braucht.
 /// Die Oberfläche spricht nur mit dem Controller, nie direkt mit den Daten.
+///
+/// Werkzeug-Einstellungen liegen in [settings] und werden zwischen allen
+/// offenen Flächen geteilt.
 class InkController extends ChangeNotifier {
-  InkController({bool? stylusOnly})
-      : stylusOnly = stylusOnly ??
-            (defaultTargetPlatform == TargetPlatform.iOS ||
-                defaultTargetPlatform == TargetPlatform.android);
+  InkController({
+    bool? stylusOnly,
+    ToolSettings? settings,
+    this.darkPaper = true,
+  }) : settings = settings ?? ToolSettings() {
+    if (stylusOnly != null) this.settings.stylusOnly = stylusOnly;
+    this.settings.addListener(_onSettings);
+  }
+
+  final ToolSettings settings;
+
+  /// Dunkles Papier → helle Stiftfarben (und umgekehrt).
+  final bool darkPaper;
 
   final InkScene scene = InkScene();
   final Camera camera = Camera();
@@ -54,23 +41,57 @@ class InkController extends ChangeNotifier {
   final InkHistory history = InkHistory();
   static const _uuid = Uuid();
 
-  // --- Werkzeug-Einstellungen --------------------------------------------
+  /// Zwischenablage für Lasso-Auswahlen – gilt app-weit, damit man zwischen
+  /// Seiten, Notizbüchern und Canvas kopieren kann.
+  static List<Stroke> clipboard = const [];
 
-  ToolMode tool = ToolMode.pen;
-  PenType penType = PenType.fountain;
-  Color penColor = const Color(0xFFEDEDF2);
-  Color highlighterColor = const Color(0xFFFACC15);
-  double penWidth = 2.5;
-  double highlighterWidth = 14;
-  EraserMode eraserMode = EraserMode.stroke;
-  double eraserSize = 12;
-  ShapeKind shapeKind = ShapeKind.line;
+  void _onSettings() => notifyListeners();
 
-  /// Selbst gewählte Farben (zusätzlich zur Palette).
-  final List<Color> customColors = [];
+  String _newId() => _uuid.v4();
 
-  /// true: nur der Stift zeichnet, Finger verschieben und zoomen.
-  bool stylusOnly;
+  // --- Einstellungen (Weiterleitung an settings) ------------------------
+
+  ToolMode get tool => settings.tool;
+  set tool(ToolMode t) => setTool(t);
+
+  PenType get penType => settings.penType;
+
+  Color get penColor =>
+      Color(darkPaper ? settings.penColorDark : settings.penColorLight);
+  set penColor(Color c) => settings.update(() {
+        if (darkPaper) {
+          settings.penColorDark = c.toARGB32();
+        } else {
+          settings.penColorLight = c.toARGB32();
+        }
+      });
+
+  Color get highlighterColor => Color(settings.highlighterColor);
+  set highlighterColor(Color c) =>
+      settings.update(() => settings.highlighterColor = c.toARGB32());
+
+  double get penWidth => settings.penWidth;
+  double get highlighterWidth => settings.highlighterWidth;
+
+  EraserMode get eraserMode => settings.eraserMode;
+  set eraserMode(EraserMode m) => settings.update(() => settings.eraserMode = m);
+
+  double get eraserSize => settings.eraserSize;
+  ShapeKind get shapeKind => settings.shapeKind;
+
+  List<Color> get palette => [
+        for (final c in darkPaper ? settings.paletteDark : settings.paletteLight)
+          Color(c)
+      ];
+  List<Color> get highlighterPalette =>
+      [for (final c in settings.highlighterPalette) Color(c)];
+  List<Color> get customColors =>
+      [for (final c in settings.customColors) Color(c)];
+
+  bool get stylusOnly =>
+      settings.stylusOnly ??
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android);
 
   /// false: niemand zeichnet, jede Eingabe verschiebt die Fläche
   /// (z. B. im Canvas-Modus "Auswählen" oder "Navigieren").
@@ -88,32 +109,29 @@ class InkController extends ChangeNotifier {
 
   void setTool(ToolMode t) {
     if (t != ToolMode.lasso) clearSelection();
-    tool = t;
-    notifyListeners();
+    settings.update(() {
+      if (t == ToolMode.eraser && settings.tool != ToolMode.eraser) {
+        settings.toolBeforeEraser = settings.tool;
+      }
+      settings.tool = t;
+    });
   }
 
-  void setPenType(PenType t) {
-    penType = t;
-    tool = ToolMode.pen;
-    notifyListeners();
-  }
+  void setPenType(PenType t) => settings.update(() {
+        settings.penType = t;
+        settings.tool = ToolMode.pen;
+      });
 
-  void setEraserMode(EraserMode m) {
-    eraserMode = m;
-    tool = ToolMode.eraser;
-    notifyListeners();
-  }
+  void setEraserMode(EraserMode m) => settings.update(() {
+        settings.eraserMode = m;
+      });
 
-  void setEraserSize(double s) {
-    eraserSize = s;
-    notifyListeners();
-  }
+  void setEraserSize(double s) => settings.update(() => settings.eraserSize = s);
 
-  void setShapeKind(ShapeKind k) {
-    shapeKind = k;
-    tool = ToolMode.shape;
-    notifyListeners();
-  }
+  void setShapeKind(ShapeKind k) => settings.update(() {
+        settings.shapeKind = k;
+        settings.tool = ToolMode.shape;
+      });
 
   void setColor(Color c) {
     if (selection.isNotEmpty) {
@@ -124,17 +142,33 @@ class InkController extends ChangeNotifier {
       highlighterColor = c;
     } else {
       penColor = c;
-      if (tool == ToolMode.eraser || tool == ToolMode.lasso) {
-        tool = ToolMode.pen;
+      if (tool == ToolMode.eraser || tool == ToolMode.lasso ||
+          tool == ToolMode.laser) {
+        setTool(ToolMode.pen);
       }
     }
-    notifyListeners();
   }
 
   void addCustomColor(Color c) {
-    customColors.removeWhere((x) => x.toARGB32() == c.toARGB32());
-    customColors.insert(0, c);
-    if (customColors.length > 6) customColors.removeLast();
+    final v = c.toARGB32();
+    settings.update(() {
+      settings.customColors.remove(v);
+      settings.customColors.insert(0, v);
+      if (settings.customColors.length > 6) settings.customColors.removeLast();
+    });
+    setColor(c);
+  }
+
+  /// Ersetzt eine Farbe der Palette (langes Drücken auf eine Farbe).
+  void replacePaletteColor(int index, Color c, {bool highlighter = false}) {
+    settings.update(() {
+      final list = highlighter
+          ? settings.highlighterPalette
+          : darkPaper
+              ? settings.paletteDark
+              : settings.paletteLight;
+      if (index >= 0 && index < list.length) list[index] = c.toARGB32();
+    });
     setColor(c);
   }
 
@@ -142,58 +176,124 @@ class InkController extends ChangeNotifier {
   double get activeWidth =>
       tool == ToolMode.highlighter ? highlighterWidth : penWidth;
 
-  void setWidth(double w) {
-    if (tool == ToolMode.highlighter) {
-      highlighterWidth = w;
-    } else {
-      penWidth = w;
-    }
-    notifyListeners();
+  void setWidth(double w) => settings.update(() {
+        if (tool == ToolMode.highlighter) {
+          settings.highlighterWidth = w;
+        } else {
+          settings.penWidth = w;
+        }
+      });
+
+  // --- Lieblingsstifte ---------------------------------------------------
+
+  void saveCurrentAsPreset() {
+    final p = PenPreset(
+        type: penType, color: penColor.toARGB32(), width: penWidth);
+    settings.update(() {
+      settings.presets.removeWhere((x) =>
+          x.type == p.type && x.color == p.color && x.width == p.width);
+      settings.presets.add(p);
+      if (settings.presets.length > 8) settings.presets.removeAt(0);
+    });
   }
 
-  /// true, sobald der Nutzer selbst umgeschaltet hat – dann greift die
-  /// Automatik nicht mehr.
-  bool _inputModeChosenByUser = false;
-
-  void setStylusOnly(bool v) {
-    stylusOnly = v;
-    _inputModeChosenByUser = true;
-    notifyListeners();
+  void applyPreset(PenPreset p) {
+    settings.update(() {
+      settings.penType = p.type;
+      settings.penWidth = p.width;
+      if (darkPaper) {
+        settings.penColorDark = p.color;
+      } else {
+        settings.penColorLight = p.color;
+      }
+      settings.tool = ToolMode.pen;
+    });
+    clearSelection();
   }
+
+  void removePreset(PenPreset p) =>
+      settings.update(() => settings.presets.remove(p));
+
+  bool isActivePreset(PenPreset p) =>
+      tool == ToolMode.pen &&
+      p.type == penType &&
+      p.color == penColor.toARGB32() &&
+      p.width == penWidth;
+
+  // --- Eingabemodus -------------------------------------------------------
+
+  void setStylusOnly(bool v) => settings.update(() {
+        settings.stylusOnly = v;
+        settings.stylusChosenByUser = true;
+      });
 
   /// Wird bei jeder Stift-Berührung aufgerufen: Ist ein Stift im Spiel,
   /// sollen Finger navigieren statt zeichnen (wie bei Goodnotes).
   void onStylusDetected() {
-    if (stylusOnly || _inputModeChosenByUser) return;
-    stylusOnly = true;
-    notifyListeners();
+    if (stylusOnly || settings.stylusChosenByUser) return;
+    settings.update(() => settings.stylusOnly = true);
   }
-
-  String _newId() => _uuid.v4();
 
   // --- Schreiben ---------------------------------------------------------
 
+  /// true, wenn die Formerkennung den aktuellen Strich ersetzt hat.
+  bool shapeLocked = false;
+
   void beginStroke(Offset world, double pressure) {
+    shapeLocked = false;
     final hl = tool == ToolMode.highlighter;
+    final InkTool t;
+    if (hl) {
+      t = InkTool.highlighter;
+    } else {
+      t = switch (penType) {
+        PenType.fountain => InkTool.pen,
+        PenType.ballpoint => InkTool.ballpoint,
+        PenType.brush => InkTool.brush,
+      };
+    }
     // Breite in Weltkoordinaten: am Bildschirm wirkt der Stift immer gleich
     // dick, egal wie weit hineingezoomt ist.
     live.begin(world, pressure,
         width: (hl ? highlighterWidth : penWidth) / camera.scale,
         color: hl ? highlighterColor : penColor,
-        tool: hl
-            ? InkTool.highlighter
-            : penType == PenType.ballpoint
-                ? InkTool.ballpoint
-                : InkTool.pen);
+        tool: t);
   }
 
-  void extendStroke(Offset world, double pressure) =>
-      live.extend(world, pressure, 0.6 / camera.scale);
+  void extendStroke(Offset world, double pressure) {
+    if (shapeLocked) return;
+    live.extend(world, pressure, 0.6 / camera.scale);
+  }
+
+  /// "Zeichnen und halten": versucht, den aktuellen Strich als Form zu
+  /// erkennen und ersetzt ihn durch die saubere Form. Gibt true zurück,
+  /// wenn eine Form erkannt wurde.
+  bool recognizeHeldStroke() {
+    if (!live.active || shapeLocked) return false;
+    if (tool == ToolMode.highlighter || !settings.shapeRecognition) {
+      return false;
+    }
+    final shape = recognizeShape(live.points, minSize: 12 / camera.scale);
+    if (shape == null) return false;
+    live.setPoints(shape,
+        width: live.width, color: live.color, tool: InkTool.ballpoint);
+    shapeLocked = true;
+    return true;
+  }
 
   void commitStroke() {
     final width = live.width, color = live.color, t = live.tool;
-    final pts = live.finish();
+    shapeLocked = false;
+    var pts = live.finish();
     if (pts == null || pts.isEmpty) return;
+    // Textmarker gerade ziehen (Option).
+    if (t == InkTool.highlighter &&
+        settings.highlighterStraight &&
+        pts.length >= 6) {
+      final n = pts.length;
+      pts = Float32List.fromList(
+          [pts[0], pts[1], 0.5, pts[n - 3], pts[n - 2], 0.5]);
+    }
     final s = Stroke(
       id: _newId(),
       color: color.toARGB32(),
@@ -206,9 +306,12 @@ class InkController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void cancelStroke() => live.cancel();
+  void cancelStroke() {
+    shapeLocked = false;
+    live.cancel();
+  }
 
-  // --- Formen ------------------------------------------------------------
+  // --- Formen-Werkzeug -----------------------------------------------------
 
   Offset? _shapeStart;
 
@@ -221,18 +324,20 @@ class InkController extends ChangeNotifier {
     final a = _shapeStart;
     if (a == null) return;
     live.setPoints(shapePoints(shapeKind, a, world, camera.scale),
-        width: penWidth / camera.scale, color: penColor, tool: InkTool.ballpoint);
+        width: penWidth / camera.scale,
+        color: penColor,
+        tool: InkTool.ballpoint);
   }
 
   void commitShape() {
     final a = _shapeStart;
     _shapeStart = null;
     if (a == null) return;
-    final pts = live.points;
+    final pts = Float32List.fromList(live.points);
     final width = live.width, color = live.color;
-    final bounds = Stroke.computeBounds(Float32List.fromList(pts), 0);
+    final bounds = Stroke.computeBounds(pts, 0);
     // Versehentliches Antippen erzeugt keine Form.
-    if (bounds.longestSide * camera.scale < 6) {
+    if (bounds.longestSide * camera.scale < 8) {
       live.cancel();
       return;
     }
@@ -241,7 +346,7 @@ class InkController extends ChangeNotifier {
       color: color.toARGB32(),
       width: width,
       tool: InkTool.ballpoint,
-      points: Float32List.fromList(pts),
+      points: pts,
     );
     live.cancel();
     scene.add(s);
@@ -249,20 +354,16 @@ class InkController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Punkte einer Form. Wird als Kugelschreiber-Strich gezeichnet
-  /// (gleichmäßige Breite, saubere Ecken).
+  /// Punkte einer Form, aufgespannt zwischen [a] und [b].
   static List<double> shapePoints(
       ShapeKind kind, Offset a, Offset b, double scale) {
-    const p = 0.6;
-    List<double> poly(List<Offset> pts) =>
-        [for (final o in pts) ...[o.dx, o.dy, p]];
     switch (kind) {
       case ShapeKind.line:
-        return poly([a, b]);
+        return polyPoints([a, b]);
       case ShapeKind.arrow:
         final d = b - a;
         final len = d.distance;
-        if (len < 1e-3) return poly([a, b]);
+        if (len < 1e-3) return polyPoints([a, b]);
         final u = d / len;
         final head = math.min(len * 0.4, 18 / scale);
         const angle = 0.5; // ca. 28°
@@ -271,18 +372,14 @@ class InkController extends ChangeNotifier {
             v.dx * math.sin(t) + v.dy * math.cos(t));
         final h1 = b - rot(u, angle) * head;
         final h2 = b - rot(u, -angle) * head;
-        return poly([a, b, h1, b, h2]);
+        return polyPoints([a, b, h1, b, h2]);
       case ShapeKind.rectangle:
-        return poly([a, Offset(b.dx, a.dy), b, Offset(a.dx, b.dy), a]);
+        return polyPoints([a, Offset(b.dx, a.dy), b, Offset(a.dx, b.dy), a]);
+      case ShapeKind.triangle:
+        final top = Offset((a.dx + b.dx) / 2, a.dy);
+        return polyPoints([top, b, Offset(a.dx, b.dy), top]);
       case ShapeKind.ellipse:
-        final c = Offset((a.dx + b.dx) / 2, (a.dy + b.dy) / 2);
-        final rx = (b.dx - a.dx).abs() / 2, ry = (b.dy - a.dy).abs() / 2;
-        const steps = 72;
-        return poly([
-          for (var i = 0; i <= steps; i++)
-            Offset(c.dx + rx * math.cos(i / steps * math.pi * 2),
-                c.dy + ry * math.sin(i / steps * math.pi * 2)),
-        ]);
+        return ellipsePoints(Rect.fromPoints(a, b));
     }
   }
 
@@ -291,10 +388,16 @@ class InkController extends ChangeNotifier {
   final List<Stroke> _eraseRemoved = [];
   final List<Stroke> _eraseAdded = [];
 
+  List<Stroke> _eraserHits(Offset world, double r) {
+    final hits = scene.hitTest(world, r);
+    if (!settings.eraseHighlighterOnly) return hits;
+    return [for (final s in hits) if (s.tool == InkTool.highlighter) s];
+  }
+
   void eraseAt(Offset world, double screenRadius) {
     final r = screenRadius / camera.scale;
     if (eraserMode == EraserMode.stroke) {
-      final hits = scene.hitTest(world, r);
+      final hits = _eraserHits(world, r);
       if (hits.isEmpty) return;
       scene.setDeleted(hits, true);
       _eraseRemoved.addAll(hits);
@@ -305,7 +408,7 @@ class InkController extends ChangeNotifier {
 
   /// Entfernt nur die Punkte im Radierer-Kreis und teilt Striche dabei auf.
   void _eraseArea(Offset world, double r) {
-    final hits = scene.hitTest(world, r);
+    final hits = _eraserHits(world, r);
     if (hits.isEmpty) return;
     final removed = <Stroke>[];
     final added = <Stroke>[];
@@ -347,29 +450,51 @@ class InkController extends ChangeNotifier {
   }
 
   void endErase() {
-    if (_eraseRemoved.isEmpty) return;
-    if (_eraseAdded.isEmpty) {
-      history.push(EraseStrokes(List.of(_eraseRemoved)));
-    } else {
-      // Zwischenstücke, die in derselben Bewegung wieder radiert wurden,
-      // gehören weder zu "vorher" noch zu "nachher".
-      final addedIds = {for (final s in _eraseAdded) s.id};
-      final removedIds = {for (final s in _eraseRemoved) s.id};
-      history.push(ReplaceStrokes(
-        removed: [
-          for (final s in _eraseRemoved)
-            if (!addedIds.contains(s.id)) s
-        ],
-        added: [
-          for (final s in _eraseAdded)
-            if (!removedIds.contains(s.id)) s
-        ],
-      ));
+    if (_eraseRemoved.isNotEmpty) {
+      if (_eraseAdded.isEmpty) {
+        history.push(EraseStrokes(List.of(_eraseRemoved)));
+      } else {
+        // Zwischenstücke, die in derselben Bewegung wieder radiert wurden,
+        // gehören weder zu "vorher" noch zu "nachher".
+        final addedIds = {for (final s in _eraseAdded) s.id};
+        final removedIds = {for (final s in _eraseRemoved) s.id};
+        history.push(ReplaceStrokes(
+          removed: [
+            for (final s in _eraseRemoved)
+              if (!addedIds.contains(s.id)) s
+          ],
+          added: [
+            for (final s in _eraseAdded)
+              if (!removedIds.contains(s.id)) s
+          ],
+        ));
+      }
     }
     _eraseRemoved.clear();
     _eraseAdded.clear();
-    notifyListeners();
+    if (settings.eraserAutoReturn && tool == ToolMode.eraser) {
+      setTool(settings.toolBeforeEraser == ToolMode.eraser
+          ? ToolMode.pen
+          : settings.toolBeforeEraser);
+    } else {
+      notifyListeners();
+    }
   }
+
+  // --- Laserpointer -------------------------------------------------------
+
+  /// Laser-Linie in Weltkoordinaten. Wird nie gespeichert.
+  final ValueNotifier<List<Offset>> laserPath = ValueNotifier(const []);
+
+  void beginLaser(Offset world) => laserPath.value = [world];
+
+  void extendLaser(Offset world) {
+    final p = laserPath.value;
+    final recent = p.length > 400 ? p.sublist(p.length - 400) : p;
+    laserPath.value = [...recent, world];
+  }
+
+  void clearLaser() => laserPath.value = const [];
 
   // --- Lasso / Auswahl ----------------------------------------------------
 
@@ -379,8 +504,15 @@ class InkController extends ChangeNotifier {
   /// Verschiebung der Auswahl während des Ziehens.
   final ValueNotifier<Offset> dragOffset = ValueNotifier(Offset.zero);
 
+  /// Vergrößerung der Auswahl während des Skalierens (um [scaleAnchor]).
+  final ValueNotifier<double> dragScale = ValueNotifier(1.0);
+  Offset scaleAnchor = Offset.zero;
+
   List<Stroke> selection = const [];
+
+  /// true, solange die Auswahl verschoben oder skaliert wird.
   bool draggingSelection = false;
+  bool _scaling = false;
   Offset? _dragStart;
 
   Rect? get selectionBounds {
@@ -395,6 +527,14 @@ class InkController extends ChangeNotifier {
   bool isInsideSelection(Offset world) {
     final b = selectionBounds;
     return b != null && b.inflate(8 / camera.scale).contains(world);
+  }
+
+  /// Liegt [world] auf dem Skalier-Griff (Ecke unten rechts)?
+  bool isOnScaleHandle(Offset world) {
+    final b = selectionBounds;
+    if (b == null) return false;
+    final handle = b.inflate(6 / camera.scale).bottomRight;
+    return (handle - world).distance * camera.scale <= 22;
   }
 
   void clearSelection() {
@@ -439,7 +579,8 @@ class InkController extends ChangeNotifier {
       var inside = 0, total = 0;
       for (var i = 0; i < n; i += step) {
         total++;
-        if (_pointInPolygon(Offset(s.points[i * 3], s.points[i * 3 + 1]), poly)) {
+        if (pointInPolygon(
+            Offset(s.points[i * 3], s.points[i * 3 + 1]), poly)) {
           inside++;
         }
       }
@@ -448,46 +589,55 @@ class InkController extends ChangeNotifier {
     return result;
   }
 
-  static bool _pointInPolygon(Offset p, List<Offset> poly) {
-    var inside = false;
-    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      final a = poly[i], b = poly[j];
-      if ((a.dy > p.dy) != (b.dy > p.dy) &&
-          p.dx < (b.dx - a.dx) * (p.dy - a.dy) / (b.dy - a.dy) + a.dx) {
-        inside = !inside;
-      }
-    }
-    return inside;
-  }
+  void beginMoveSelection(Offset world) => _beginTransform(world, scale: false);
 
-  void beginMoveSelection(Offset world) {
-    if (selection.isEmpty) return;
+  void beginScaleSelection(Offset world) => _beginTransform(world, scale: true);
+
+  void _beginTransform(Offset world, {required bool scale}) {
+    final b = selectionBounds;
+    if (b == null) return;
     draggingSelection = true;
+    _scaling = scale;
     _dragStart = world;
+    scaleAnchor = b.topLeft;
     dragOffset.value = Offset.zero;
+    dragScale.value = 1.0;
     // Originale ausblenden, solange die Vorschau mitwandert.
     scene.setDeleted(selection, true);
     notifyListeners();
   }
 
+  /// Bewegt (bzw. skaliert) die Auswahl während des Ziehens.
   void moveSelection(Offset world) {
     final start = _dragStart;
     if (start == null) return;
-    dragOffset.value = world - start;
+    if (_scaling) {
+      final from = (start - scaleAnchor).distance;
+      if (from < 1e-6) return;
+      final to = (world - scaleAnchor).distance;
+      dragScale.value = (to / from).clamp(0.1, 10.0).toDouble();
+    } else {
+      dragOffset.value = world - start;
+    }
   }
 
   void endMoveSelection() {
     if (!draggingSelection) return;
     final d = dragOffset.value;
+    final s = dragScale.value;
+    final anchor = scaleAnchor;
     draggingSelection = false;
+    _scaling = false;
     _dragStart = null;
     dragOffset.value = Offset.zero;
-    if (d.distance * camera.scale < 1) {
+    dragScale.value = 1.0;
+    if (d.distance * camera.scale < 1 && (s - 1).abs() < 0.01) {
       scene.setDeleted(selection, false);
       notifyListeners();
       return;
     }
-    _replaceSelection((s) => _copy(s, offset: d));
+    _replaceSelection(
+        (stroke) => _copy(stroke, offset: d, scale: s, anchor: anchor));
   }
 
   void recolorSelection(Color c) =>
@@ -504,10 +654,44 @@ class InkController extends ChangeNotifier {
 
   void duplicateSelection() {
     if (selection.isEmpty) return;
-    final shift = Offset(24, 24) / camera.scale;
+    final shift = const Offset(24, 24) / camera.scale;
     final copies = [for (final s in selection) _copy(s, offset: shift)];
     scene.addAll(copies);
     history.push(AddStrokes(copies));
+    selection = copies;
+    notifyListeners();
+  }
+
+  void copySelection() {
+    if (selection.isEmpty) return;
+    clipboard = [for (final s in selection) _copy(s)];
+    notifyListeners();
+  }
+
+  void cutSelection() {
+    if (selection.isEmpty) return;
+    copySelection();
+    deleteSelection();
+  }
+
+  bool get canPaste => clipboard.isNotEmpty;
+
+  /// Fügt die Zwischenablage in der Mitte des sichtbaren Bereichs ein.
+  void paste() {
+    if (clipboard.isEmpty) return;
+    var bounds = clipboard.first.bounds;
+    for (final s in clipboard.skip(1)) {
+      bounds = bounds.expandToInclude(s.bounds);
+    }
+    final view = camera.viewport;
+    final target = view.isEmpty
+        ? bounds.center + const Offset(24, 24)
+        : camera.toWorld(Offset(view.width / 2, view.height / 2));
+    final shift = target - bounds.center;
+    final copies = [for (final s in clipboard) _copy(s, offset: shift)];
+    scene.addAll(copies);
+    history.push(AddStrokes(copies));
+    settings.update(() => settings.tool = ToolMode.lasso);
     selection = copies;
     notifyListeners();
   }
@@ -523,18 +707,22 @@ class InkController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Stroke _copy(Stroke s, {Offset offset = Offset.zero, int? color}) {
+  Stroke _copy(Stroke s,
+      {Offset offset = Offset.zero,
+      double scale = 1,
+      Offset anchor = Offset.zero,
+      int? color}) {
     final pts = Float32List.fromList(s.points);
-    if (offset != Offset.zero) {
+    if (offset != Offset.zero || scale != 1) {
       for (var i = 0; i < pts.length; i += 3) {
-        pts[i] += offset.dx;
-        pts[i + 1] += offset.dy;
+        pts[i] = anchor.dx + (pts[i] - anchor.dx) * scale + offset.dx;
+        pts[i + 1] = anchor.dy + (pts[i + 1] - anchor.dy) * scale + offset.dy;
       }
     }
     return Stroke(
       id: _newId(),
       color: color ?? s.color,
-      width: s.width,
+      width: s.width * scale,
       tool: s.tool,
       points: pts,
     );
@@ -574,11 +762,14 @@ class InkController extends ChangeNotifier {
 
   @override
   void dispose() {
+    settings.removeListener(_onSettings);
     scene.dispose();
     camera.dispose();
     live.dispose();
     lassoPath.dispose();
+    laserPath.dispose();
     dragOffset.dispose();
+    dragScale.dispose();
     super.dispose();
   }
 }

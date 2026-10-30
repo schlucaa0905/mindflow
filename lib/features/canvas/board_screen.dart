@@ -348,8 +348,9 @@ class _BoardScreenState extends State<BoardScreen> {
         const SingleActivator(LogicalKeyboardKey.delete): _deleteSelected,
         const SingleActivator(LogicalKeyboardKey.backspace): _deleteSelected,
       },
+      // Fokus liegt auf der Schreibfläche; Tasten, die sie nicht braucht
+      // (z. B. Entf ohne Lasso-Auswahl), kommen hier an.
       child: Focus(
-        autofocus: true,
         child: Scaffold(
           backgroundColor: paper.sheet,
           body: Stack(
@@ -358,7 +359,7 @@ class _BoardScreenState extends State<BoardScreen> {
                 child: InkSurface(
                   inkId: board.id,
                   paper: board.paper,
-                  toolbarTop: 64,
+                  toolbarInsets: const EdgeInsets.fromLTRB(12, 64, 12, 76),
                   showInkTools: _mode == BoardMode.write,
                   onSaved: _changed,
                   onControllerReady: (c) {

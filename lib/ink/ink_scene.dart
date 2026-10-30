@@ -42,8 +42,12 @@ class InkChunk {
   ui.Picture _record() {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
+    // Textmarker liegen immer hinter der Schrift (wie auf Papier).
     for (final s in strokes) {
-      if (!s.deleted) paintStroke(canvas, s);
+      if (!s.deleted && s.tool == InkTool.highlighter) paintStroke(canvas, s);
+    }
+    for (final s in strokes) {
+      if (!s.deleted && s.tool != InkTool.highlighter) paintStroke(canvas, s);
     }
     return recorder.endRecording();
   }

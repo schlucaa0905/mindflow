@@ -4,7 +4,7 @@ import 'dart:ui';
 
 /// Werkzeug, mit dem ein Strich gezeichnet wurde.
 /// Neue Werte nur hinten anhängen – die Position wird gespeichert.
-enum InkTool { pen, highlighter, ballpoint }
+enum InkTool { pen, highlighter, ballpoint, brush }
 
 /// Ein einzelner Strich – reine Daten, keine Rendering-Objekte.
 ///

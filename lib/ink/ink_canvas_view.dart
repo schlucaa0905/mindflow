@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -13,15 +14,18 @@ import 'live_stroke.dart';
 import 'stroke_renderer.dart';
 
 /// Die Zeichenfläche: nimmt Stift-, Finger-, Maus- und Trackpad-Eingaben
-/// entgegen und zeichnet drei Ebenen (Raster, fertige Striche, Live-Strich).
+/// entgegen und zeichnet die Ebenen (Hintergrund, Striche, Live-Strich,
+/// Auswahl, Laser).
 ///
 /// Eingaberegeln:
-/// - Stift: zeichnet immer.
+/// - Stift: benutzt das gewählte Werkzeug.
 /// - Finger (bei "Nur Stift"): 1 Finger verschiebt, 2 Finger zoomen.
 ///   Während der Stift schreibt, werden Finger ignoriert (Handballen).
 /// - Finger (ohne "Nur Stift"): 1 Finger zeichnet, 2 Finger zoomen.
+/// - 2 Finger kurz tippen: rückgängig. 3 Finger kurz tippen: wiederholen.
 /// - Maus: linke Taste zeichnet, rechte/mittlere verschiebt, Rad zoomt.
 /// - Trackpad: zwei Finger verschieben, Pinch zoomt.
+/// - Stift mit Füller/Pinsel/Kugelschreiber kurz halten: Formerkennung.
 class InkCanvasView extends StatefulWidget {
   const InkCanvasView({
     super.key,
@@ -43,9 +47,8 @@ class InkCanvasView extends StatefulWidget {
   State<InkCanvasView> createState() => _InkCanvasViewState();
 }
 
-class _InkCanvasViewState extends State<InkCanvasView> {
-  static const double _eraserScreenRadius = 12;
-
+class _InkCanvasViewState extends State<InkCanvasView>
+    with SingleTickerProviderStateMixin {
   InkController get c => widget.controller;
 
   int? _drawPointer;
@@ -58,6 +61,41 @@ class _InkCanvasViewState extends State<InkCanvasView> {
   double _lastTrackpadScale = 1;
   int? _tapPointer;
   Offset? _tapStart;
+
+  // Mehrfinger-Tippen (rückgängig / wiederholen)
+  final Map<int, Offset> _touchStarts = {};
+  DateTime? _multiTapStart;
+  int _multiTapMax = 0;
+  bool _multiTapMoved = false;
+
+  // Lasso
+  bool _movingSelection = false;
+
+  // Formerkennung durch Halten
+  Timer? _holdTimer;
+  Offset? _holdAnchor;
+
+  /// Position des Radierers auf dem Bildschirm (für den Kreis).
+  final ValueNotifier<Offset?> _eraserPos = ValueNotifier(null);
+
+  /// Laser verblasst nach dem Abheben.
+  late final AnimationController _laserFade = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..addStatusListener((s) {
+      if (s == AnimationStatus.completed) {
+        c.clearLaser();
+        _laserFade.value = 0;
+      }
+    });
+
+  @override
+  void dispose() {
+    _holdTimer?.cancel();
+    _eraserPos.dispose();
+    _laserFade.dispose();
+    super.dispose();
+  }
 
   double _pressure(PointerEvent e) {
     if (e.kind == PointerDeviceKind.stylus ||
@@ -85,9 +123,7 @@ class _InkCanvasViewState extends State<InkCanvasView> {
     }
   }
 
-  // --- Zeichnen / Radieren ----------------------------------------------
-
-  bool _movingSelection = false;
+  // --- Werkzeuge ----------------------------------------------------------
 
   void _startDraw(PointerEvent e) {
     final world = c.camera.toWorld(e.localPosition);
@@ -96,7 +132,10 @@ class _InkCanvasViewState extends State<InkCanvasView> {
         _eraserPos.value = e.localPosition;
         c.eraseAt(world, c.eraserSize);
       case ToolMode.lasso:
-        if (c.isInsideSelection(world)) {
+        if (c.isOnScaleHandle(world)) {
+          _movingSelection = true;
+          c.beginScaleSelection(world);
+        } else if (c.isInsideSelection(world)) {
           _movingSelection = true;
           c.beginMoveSelection(world);
         } else {
@@ -105,9 +144,14 @@ class _InkCanvasViewState extends State<InkCanvasView> {
         }
       case ToolMode.shape:
         c.beginShape(world);
+      case ToolMode.laser:
+        _laserFade.stop();
+        _laserFade.value = 0;
+        c.beginLaser(world);
       case ToolMode.pen:
       case ToolMode.highlighter:
         c.beginStroke(world, _pressure(e));
+        _restartHold(e.localPosition);
     }
   }
 
@@ -125,13 +169,22 @@ class _InkCanvasViewState extends State<InkCanvasView> {
         }
       case ToolMode.shape:
         c.updateShape(world);
+      case ToolMode.laser:
+        c.extendLaser(world);
       case ToolMode.pen:
       case ToolMode.highlighter:
         c.extendStroke(world, _pressure(e));
+        // Erst bei echter Bewegung den Halte-Timer neu starten.
+        final anchor = _holdAnchor;
+        if (anchor == null || (e.localPosition - anchor).distance > 4) {
+          _restartHold(e.localPosition);
+        }
     }
   }
 
   void _endDraw({required bool commit}) {
+    _holdTimer?.cancel();
+    _holdAnchor = null;
     switch (c.tool) {
       case ToolMode.eraser:
         _eraserPos.value = null;
@@ -149,6 +202,8 @@ class _InkCanvasViewState extends State<InkCanvasView> {
         } else {
           c.cancelStroke();
         }
+      case ToolMode.laser:
+        _laserFade.forward(from: 0);
       case ToolMode.pen:
       case ToolMode.highlighter:
         if (commit) {
@@ -161,26 +216,32 @@ class _InkCanvasViewState extends State<InkCanvasView> {
     _drawKind = null;
   }
 
-  /// Position des Radierers auf dem Bildschirm (für den Kreis).
-  final ValueNotifier<Offset?> _eraserPos = ValueNotifier(null);
-
-  @override
-  void dispose() {
-    _eraserPos.dispose();
-    super.dispose();
+  /// "Zeichnen und halten": Steht der Stift 0,55 s still, wird der Strich
+  /// als Form erkannt.
+  void _restartHold(Offset screen) {
+    _holdAnchor = screen;
+    _holdTimer?.cancel();
+    _holdTimer = Timer(const Duration(milliseconds: 550), () {
+      if (_drawPointer == null || !mounted) return;
+      c.recognizeHeldStroke();
+    });
   }
 
-  // --- Ereignisse -------------------------------------------------------
+  // --- Ereignisse ---------------------------------------------------------
 
   void _onDown(PointerDownEvent e) {
     if (e.kind == PointerDeviceKind.stylus ||
         e.kind == PointerDeviceKind.invertedStylus) {
       c.onStylusDetected();
     }
+    if (e.kind == PointerDeviceKind.touch) _trackMultiTapDown(e);
+
     if (_drawPointer == null && _wantsDraw(e)) {
       _drawPointer = e.pointer;
       _drawKind = e.kind;
-      if (e.kind == PointerDeviceKind.touch) _touches[e.pointer] = e.localPosition;
+      if (e.kind == PointerDeviceKind.touch) {
+        _touches[e.pointer] = e.localPosition;
+      }
       _startDraw(e);
       return;
     }
@@ -213,8 +274,14 @@ class _InkCanvasViewState extends State<InkCanvasView> {
         (e.localPosition - _tapStart!).distance > 8) {
       _tapPointer = null;
     }
+    final start = _touchStarts[e.pointer];
+    if (start != null && (e.localPosition - start).distance > 12) {
+      _multiTapMoved = true;
+    }
     if (e.pointer == _drawPointer) {
-      if (e.kind == PointerDeviceKind.touch) _touches[e.pointer] = e.localPosition;
+      if (e.kind == PointerDeviceKind.touch) {
+        _touches[e.pointer] = e.localPosition;
+      }
       _moveDraw(e);
       return;
     }
@@ -261,6 +328,37 @@ class _InkCanvasViewState extends State<InkCanvasView> {
       _pinchFocal = null;
       _pinchDistance = null;
     }
+    if (e.kind == PointerDeviceKind.touch) {
+      _trackMultiTapUp(e, cancelled: e is PointerCancelEvent);
+    }
+  }
+
+  // Zwei bzw. drei Finger kurz antippen.
+  void _trackMultiTapDown(PointerDownEvent e) {
+    if (_touchStarts.isEmpty) {
+      _multiTapStart = DateTime.now();
+      _multiTapMax = 0;
+      _multiTapMoved = false;
+    }
+    _touchStarts[e.pointer] = e.localPosition;
+    _multiTapMax = math.max(_multiTapMax, _touchStarts.length);
+  }
+
+  void _trackMultiTapUp(PointerEvent e, {required bool cancelled}) {
+    _touchStarts.remove(e.pointer);
+    if (cancelled) _multiTapMoved = true;
+    if (_touchStarts.isNotEmpty) return;
+    final start = _multiTapStart;
+    _multiTapStart = null;
+    if (start == null || _multiTapMoved) return;
+    final quick =
+        DateTime.now().difference(start) < const Duration(milliseconds: 300);
+    if (!quick) return;
+    if (_multiTapMax == 2) {
+      c.undo();
+    } else if (_multiTapMax == 3) {
+      c.redo();
+    }
   }
 
   void _onSignal(PointerSignalEvent e) {
@@ -283,6 +381,7 @@ class _InkCanvasViewState extends State<InkCanvasView> {
   }
 
   Widget _input(BuildContext context) {
+    final mf = context.mf;
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: _onDown,
@@ -315,13 +414,14 @@ class _InkCanvasViewState extends State<InkCanvasView> {
             child: CustomPaint(painter: _LivePainter(c.live, c.camera)),
           ),
           RepaintBoundary(
-            child: CustomPaint(
-              painter: _SelectionPainter(c, context.mf.accent),
-            ),
+            child: CustomPaint(painter: _SelectionPainter(c, mf.accent)),
+          ),
+          RepaintBoundary(
+            child: CustomPaint(painter: _LaserPainter(c, _laserFade)),
           ),
           IgnorePointer(
             child: CustomPaint(
-              painter: _EraserPainter(_eraserPos, c, context.mf.textMuted),
+              painter: _EraserPainter(_eraserPos, c, mf.textMuted),
             ),
           ),
         ],
@@ -330,12 +430,18 @@ class _InkCanvasViewState extends State<InkCanvasView> {
   }
 }
 
-/// Lasso-Linie, Auswahlrahmen und die mitwandernde Vorschau beim Verschieben.
+/// Lasso-Linie, Auswahlrahmen, Skalier-Griff und die mitwandernde Vorschau.
 class _SelectionPainter extends CustomPainter {
   _SelectionPainter(this.c, this.accent)
       : super(
-            repaint: Listenable.merge(
-                [c, c.camera, c.lassoPath, c.dragOffset, c.scene]));
+            repaint: Listenable.merge([
+          c,
+          c.camera,
+          c.lassoPath,
+          c.dragOffset,
+          c.dragScale,
+          c.scene,
+        ]));
 
   final InkController c;
   final Color accent;
@@ -345,7 +451,8 @@ class _SelectionPainter extends CustomPainter {
     final cam = c.camera;
     final path = c.lassoPath.value;
     if (path.length > 1) {
-      final p = Path()..moveTo(cam.toScreen(path.first).dx, cam.toScreen(path.first).dy);
+      final first = cam.toScreen(path.first);
+      final p = Path()..moveTo(first.dx, first.dy);
       for (final w in path.skip(1)) {
         final s = cam.toScreen(w);
         p.lineTo(s.dx, s.dy);
@@ -356,25 +463,33 @@ class _SelectionPainter extends CustomPainter {
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1.5
             ..color = accent);
-      canvas.drawPath(
-          p..close(), Paint()..color = accent.withValues(alpha: 0.08));
+      p.close();
+      canvas.drawPath(p, Paint()..color = accent.withValues(alpha: 0.08));
     }
 
     final bounds = c.selectionBounds;
-    if (bounds == null) return;
+    if (bounds == null || c.tool != ToolMode.lasso) return;
     final d = c.dragOffset.value;
+    final s = c.dragScale.value;
+    final anchor = c.scaleAnchor;
+
+    // Weltpunkt → Bildschirm, inkl. laufender Verschiebung/Skalierung.
+    Offset tf(Offset w) =>
+        cam.toScreen(anchor + (w - anchor) * s + d);
+
     if (c.draggingSelection) {
       canvas.save();
       canvas.translate(cam.offset.dx, cam.offset.dy);
       canvas.scale(cam.scale);
-      canvas.translate(d.dx, d.dy);
-      for (final s in c.selection) {
-        paintStroke(canvas, s);
+      canvas.translate(anchor.dx + d.dx, anchor.dy + d.dy);
+      canvas.scale(s);
+      canvas.translate(-anchor.dx, -anchor.dy);
+      for (final stroke in c.selection) {
+        paintStroke(canvas, stroke);
       }
       canvas.restore();
     }
-    final r = Rect.fromPoints(cam.toScreen(bounds.topLeft + d),
-            cam.toScreen(bounds.bottomRight + d))
+    final r = Rect.fromPoints(tf(bounds.topLeft), tf(bounds.bottomRight))
         .inflate(6);
     final rr = RRect.fromRectAndRadius(r, const Radius.circular(8));
     canvas.drawRRect(rr, Paint()..color = accent.withValues(alpha: 0.06));
@@ -384,10 +499,66 @@ class _SelectionPainter extends CustomPainter {
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.5
           ..color = accent);
+    // Skalier-Griff unten rechts.
+    canvas.drawCircle(r.bottomRight, 9, Paint()..color = Colors.white);
+    canvas.drawCircle(
+        r.bottomRight,
+        9,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = accent);
   }
 
   @override
   bool shouldRepaint(_SelectionPainter old) => true;
+}
+
+/// Laserpointer: leuchtende rote Linie, verblasst nach dem Abheben.
+class _LaserPainter extends CustomPainter {
+  _LaserPainter(this.c, this.fade)
+      : super(repaint: Listenable.merge([c.laserPath, c.camera, fade]));
+
+  final InkController c;
+  final Animation<double> fade;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final pts = c.laserPath.value;
+    if (pts.isEmpty) return;
+    final opacity = (1 - fade.value).clamp(0.0, 1.0).toDouble();
+    if (opacity <= 0) return;
+    final path = Path();
+    final first = c.camera.toScreen(pts.first);
+    path.moveTo(first.dx, first.dy);
+    for (final w in pts.skip(1)) {
+      final s = c.camera.toScreen(w);
+      path.lineTo(s.dx, s.dy);
+    }
+    canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..strokeWidth = 10
+          ..color = const Color(0xFFFF3B30).withValues(alpha: 0.25 * opacity)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
+    canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..strokeWidth = 3
+          ..color = const Color(0xFFFF453A).withValues(alpha: opacity));
+    final last = c.camera.toScreen(pts.last);
+    canvas.drawCircle(
+        last, 5, Paint()..color = Colors.white.withValues(alpha: opacity));
+  }
+
+  @override
+  bool shouldRepaint(_LaserPainter old) => true;
 }
 
 /// Kreis, der zeigt, wie groß der Radierer ist.
@@ -431,50 +602,66 @@ class _SelectionActions extends StatelessWidget {
         if (b == null || c.draggingSelection || c.tool != ToolMode.lasso) {
           return const SizedBox.shrink();
         }
-        final top = c.camera.toScreen(b.topCenter);
-        final size = MediaQuery.sizeOf(context);
-        const panelWidth = 220.0;
-        final left = (top.dx - panelWidth / 2)
-            .clamp(8.0, math.max(8.0, size.width - panelWidth - 8))
-            .toDouble();
-        final y = top.dy - 64;
-        return Stack(
-          children: [
-            Positioned(
-              left: left,
-              top: y < 8 ? c.camera.toScreen(b.bottomCenter).dy + 12 : y,
-              child: FloatingPanel(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ToolButton(
-                      icon: Icons.copy_all_outlined,
-                      label: 'Duplizieren',
-                      onTap: c.duplicateSelection,
-                    ),
-                    ToolButton(
-                      icon: Icons.delete_outline,
-                      label: 'Löschen',
-                      danger: true,
-                      onTap: c.deleteSelection,
-                    ),
-                    ToolButton(
-                      icon: Icons.close,
-                      label: 'Auswahl aufheben',
-                      onTap: c.clearSelection,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: Text('${c.selection.length}',
-                          style: TextStyle(
-                              fontSize: 12, color: context.mf.textMuted)),
-                    ),
-                  ],
+        return LayoutBuilder(builder: (context, constraints) {
+          final size = constraints.biggest;
+          final top = c.camera.toScreen(b.topCenter);
+          const panelWidth = 300.0;
+          final left = (top.dx - panelWidth / 2)
+              .clamp(8.0, math.max(8.0, size.width - panelWidth - 8))
+              .toDouble();
+          final above = top.dy - 70;
+          final y = above < 8
+              ? math.min(c.camera.toScreen(b.bottomCenter).dy + 20,
+                  size.height - 64)
+              : above;
+          return Stack(
+            children: [
+              Positioned(
+                left: left,
+                top: y,
+                child: FloatingPanel(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ToolButton(
+                        icon: Icons.content_cut,
+                        label: 'Ausschneiden',
+                        onTap: c.cutSelection,
+                      ),
+                      ToolButton(
+                        icon: Icons.content_copy,
+                        label: 'Kopieren',
+                        onTap: c.copySelection,
+                      ),
+                      ToolButton(
+                        icon: Icons.copy_all_outlined,
+                        label: 'Duplizieren',
+                        onTap: c.duplicateSelection,
+                      ),
+                      ToolButton(
+                        icon: Icons.delete_outline,
+                        label: 'Löschen',
+                        danger: true,
+                        onTap: c.deleteSelection,
+                      ),
+                      ToolButton(
+                        icon: Icons.close,
+                        label: 'Auswahl aufheben',
+                        onTap: c.clearSelection,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Text('${c.selection.length}',
+                            style: TextStyle(
+                                fontSize: 12, color: context.mf.textMuted)),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
-        );
+            ],
+          );
+        });
       },
     );
   }
@@ -494,7 +681,9 @@ class DotGridPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (fill != null) canvas.drawRect(Offset.zero & size, Paint()..color = fill!);
+    if (fill != null) {
+      canvas.drawRect(Offset.zero & size, Paint()..color = fill!);
+    }
     var spacing = _worldSpacing * camera.scale;
     // Beim Herauszoomen gröberes Raster, damit es nicht zu dicht wird.
     while (spacing < 14) {

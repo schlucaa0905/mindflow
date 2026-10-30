@@ -26,6 +26,7 @@ Paint paintFor(InkTool tool, Color color, double width) {
   final p = Paint()..isAntiAlias = true;
   switch (tool) {
     case InkTool.pen:
+    case InkTool.brush:
       p
         ..style = PaintingStyle.fill
         ..color = color;
@@ -52,6 +53,8 @@ Path buildStrokePath(List<double> pts, double width, InkTool tool) {
   switch (tool) {
     case InkTool.pen:
       return _penOutline(pts, width);
+    case InkTool.brush:
+      return _penOutline(pts, width, brush: true);
     case InkTool.highlighter:
     case InkTool.ballpoint:
       return _polyline(pts);
@@ -79,14 +82,22 @@ Path _polyline(List<double> pts) {
 /// versetzt. Die linke Kante läuft vorwärts, die rechte rückwärts, die
 /// Enden werden mit Halbkreisen geschlossen. Ergebnis: eine einzige Form,
 /// die sehr schnell gezeichnet werden kann.
-Path _penOutline(List<double> pts, double width) {
+///
+/// Pinselstift ([brush]): viel stärkerer Druckeffekt und spitz zulaufende
+/// Enden, wie bei einem echten Brush-Pen.
+Path _penOutline(List<double> pts, double width, {bool brush = false}) {
   final path = Path();
   final n = pts.length ~/ 3;
   if (n == 0) return path;
 
   double radius(int i) {
     final p = pts[i * 3 + 2].clamp(0.0, 1.0).toDouble();
-    return math.max(0.3, width / 2 * (0.4 + 0.6 * p));
+    if (!brush) return math.max(0.3, width / 2 * (0.4 + 0.6 * p));
+    // Spitze Enden: die ersten und letzten 15 % laufen aus.
+    final edge = math.max(1, (n * 0.15).round());
+    final fromEdge = math.min(i, n - 1 - i);
+    final taper = fromEdge >= edge ? 1.0 : 0.25 + 0.75 * (fromEdge / edge);
+    return math.max(0.2, width / 2 * (0.15 + 1.7 * math.pow(p, 1.3)) * taper);
   }
 
   if (n == 1) {

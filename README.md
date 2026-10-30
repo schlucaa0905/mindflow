@@ -23,6 +23,30 @@ Version 0.1 – Fundament, Notizbuch und Infinite Canvas.
 
 **Handschrift** (wie in Phase 0 getestet): Druck, Glättung, Textmarker, Radierer, Rückgängig, Handballen-Schutz, „Nur Stift“ schaltet sich automatisch ein, sobald ein Stift erkannt wird.
 
+## Neu in 0.3 – Werkzeuge auf Goodnotes-Niveau
+
+**Werkzeugleiste**
+- Am Griff (⋮⋮) ziehen: an einen Rand (oben, unten, links, rechts) andocken oder frei schweben lassen. Einklappbar. Position wird gemerkt.
+- Alle Werkzeug-Einstellungen gelten app-weit und bleiben nach dem Neustart erhalten.
+
+**Stifte**
+- Füller, Kugelschreiber, Pinselstift (starker Druckeffekt, spitze Enden)
+- Lieblingsstifte: im Stift-Menü speichern, erscheinen direkt in der Leiste
+- Formerkennung: Form zeichnen und Stift kurz halten → Linie, Kreis, Ellipse, Rechteck, Dreieck oder Vieleck
+- Farbe lange drücken (Windows: Rechtsklick) → Palette anpassen
+
+**Textmarker:** liegt immer hinter der Schrift, optional „gerade Linien“
+**Radierer:** ganze Striche oder Bereich, „nur Textmarker“, „danach zurück zum vorigen Werkzeug“
+**Lasso:** verschieben, skalieren (Griff unten rechts), ausschneiden, kopieren, einfügen (auch in andere Seiten/Notizbücher/Canvas), duplizieren, umfärben, löschen
+**Formen:** Linie, Pfeil, Rechteck, Ellipse, Dreieck
+**Laserpointer:** leuchtende Linie zum Zeigen, verschwindet von selbst, wird nie gespeichert
+
+**Gesten & Tastatur**
+- 2 Finger tippen = rückgängig, 3 Finger tippen = wiederholen
+- Tasten: P Stift, H Textmarker, E Radierer, L Lasso, S Formen, R Laser
+- Strg+Z / Strg+Y, Strg+C / X / V / D für die Auswahl, Entf löscht, Esc hebt auf
+- Notizbuch: Bild auf / Bild ab bzw. Alt+Pfeil zum Blättern
+
 ## Neu in 0.2
 
 - **Notizbuch anlegen:** Live-Vorschau, 14 Umschlagfarben, 6 Umschlag-Designs, Papier Dunkel/Weiß/Creme, Format A4 hoch/quer/quadratisch, 8 Vorlagen mit Mini-Vorschau (u. a. Cornell, Aufgaben, Kariert klein), Kategorie/Fach.

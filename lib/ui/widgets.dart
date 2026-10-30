@@ -81,17 +81,23 @@ class ColorDot extends StatelessWidget {
       {super.key,
       required this.color,
       required this.selected,
-      required this.onTap});
+      required this.onTap,
+      this.onLongPress});
 
   final Color color;
   final bool selected;
   final VoidCallback onTap;
+
+  /// Langes Drücken (bzw. Rechtsklick), z. B. um die Farbe zu ändern.
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final mf = context.mf;
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
+      onSecondaryTap: onLongPress,
       child: Container(
         width: 32,
         height: 40,

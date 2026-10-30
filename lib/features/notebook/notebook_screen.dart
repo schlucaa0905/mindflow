@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../app/services.dart';
 import '../../app/theme.dart';
@@ -280,7 +281,17 @@ class _NotebookScreenState extends State<NotebookScreen> {
     final pageRect = pageRectFor(nb.format);
     final mf = context.mf;
 
-    return Scaffold(
+    // Bild auf/ab bzw. Pfeiltasten: blättern (Windows-Tastatur).
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.pageDown): () => _goTo(_index + 1),
+        const SingleActivator(LogicalKeyboardKey.pageUp): () => _goTo(_index - 1),
+        const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true): () =>
+            _goTo(_index + 1),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): () =>
+            _goTo(_index - 1),
+      },
+      child: Scaffold(
       backgroundColor: paper.desk,
       body: Stack(
         children: [
@@ -291,7 +302,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
               paper: nb.paper,
               fitRect: pageRect,
               lockToFit: true,
-              toolbarTop: 64,
+              toolbarInsets: const EdgeInsets.fromLTRB(12, 64, 12, 84),
               onSaved: () => _s.objects.touch(nb.id),
               backgroundBuilder: (camera) => PagePainter(
                 camera: camera,
@@ -406,6 +417,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 }
