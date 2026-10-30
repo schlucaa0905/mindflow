@@ -218,13 +218,25 @@ void main() {
 
     test('Lasso: Strich, der die Lasso-Linie nur kreuzt, wird gewählt', () {
       final c = withLine()..setTool(ToolMode.lasso);
+      // Hineinzoomen: Das Lasso übernimmt nur Punkte, die auf dem
+      // Bildschirm mindestens 3 Punkte auseinanderliegen.
+      c.camera.zoomAt(Offset.zero, 8);
       // Sehr schmales Dreieck, das die Linie bei x=50 durchschneidet,
-      // ohne dass ein Linienpunkt innen liegt.
+      // ohne dass ein Linienpunkt innen liegen muss.
       c.beginLasso(const Offset(50.5, -30));
       c.extendLasso(const Offset(50.9, -30));
       c.extendLasso(const Offset(50.7, 30));
       c.endLasso();
       expect(c.selection.length, 1);
+      // Und direkt geprüft: die Schnitt-Erkennung selbst.
+      expect(
+          InkController.segmentsIntersect(const Offset(0, 0),
+              const Offset(100, 0), const Offset(50, -10), const Offset(50, 10)),
+          isTrue);
+      expect(
+          InkController.segmentsIntersect(const Offset(0, 0),
+              const Offset(100, 0), const Offset(50, 5), const Offset(50, 10)),
+          isFalse);
     });
 
     test('Lasso: weit entfernte Striche bleiben unberührt', () {
