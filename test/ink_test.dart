@@ -289,6 +289,38 @@ void main() {
       InkController.clipboard = const [];
     });
 
+    test('Einfügen an einer Stelle – und immer auf dem Blatt', () {
+      final c = withLine()..setTool(ToolMode.lasso);
+      c.selection = alive(c);
+      c.copySelection();
+      final other = InkController(stylusOnly: true)
+        ..drawBounds = const Rect.fromLTWH(0, 0, 595, 842);
+      other.paste(at: const Offset(300, 400));
+      expect(other.selectionBounds!.center.dx, closeTo(300, 0.5));
+      expect(other.selectionBounds!.center.dy, closeTo(400, 0.5));
+      expect(other.tool, ToolMode.lasso);
+      other.paste(at: const Offset(5000, 5000));
+      final b = other.selectionBounds!;
+      expect(b.right, lessThanOrEqualTo(595.5));
+      expect(b.bottom, lessThanOrEqualTo(842.5));
+      expect(other.scene.aliveCount, 2);
+      InkController.clipboard = const [];
+    });
+
+    test('Text-Werkzeug und Schriftgröße werden gespeichert', () {
+      final s = ToolSettings()
+        ..tool = ToolMode.text
+        ..textSize = 26;
+      final again = ToolSettings.fromJson(s.toJson());
+      expect(again.tool, ToolMode.text);
+      expect(again.textSize, 26);
+      final c = InkController(stylusOnly: true)..setTool(ToolMode.text);
+      c.setColor(const Color(0xFF22D3EE));
+      expect(c.tool, ToolMode.text, reason: 'Farbe wählen bleibt beim Text');
+      c.setTextSize(500);
+      expect(c.textSize, 96);
+    });
+
     test('Umfärben und Duplizieren', () {
       final c = withLine()..setTool(ToolMode.lasso);
       c.selection = alive(c);

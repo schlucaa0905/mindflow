@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app/theme.dart';
 import '../ui/widgets.dart';
@@ -33,7 +34,12 @@ class InkCanvasView extends StatefulWidget {
     this.background,
     this.onBackgroundTap,
     this.onSwipe,
+    this.onTextTap,
   });
+
+  /// Text-Werkzeug: Antippen einer Stelle (Weltkoordinate) legt dort ein
+  /// Textfeld an.
+  final ValueChanged<Offset>? onTextTap;
 
   final InkController controller;
 
@@ -85,6 +91,11 @@ class _InkCanvasViewState extends State<InkCanvasView>
   Timer? _holdTimer;
   Offset? _holdAnchor;
 
+  // Lasso: lange drücken = Zwischenablage hier einfügen
+  Timer? _pasteTimer;
+  Offset? _pasteAnchor;
+  bool _pastedByHold = false;
+
   /// Position des Radierers auf dem Bildschirm (für den Kreis).
   final ValueNotifier<Offset?> _eraserPos = ValueNotifier(null);
 
@@ -102,6 +113,7 @@ class _InkCanvasViewState extends State<InkCanvasView>
   @override
   void dispose() {
     _holdTimer?.cancel();
+    _pasteTimer?.cancel();
     _eraserPos.dispose();
     _laserFade.dispose();
     super.dispose();
@@ -120,6 +132,8 @@ class _InkCanvasViewState extends State<InkCanvasView>
 
   bool _wantsDraw(PointerDownEvent e) {
     if (!c.drawingEnabled) return false;
+    // Text-Werkzeug zeichnet nicht – Antippen legt ein Textfeld an.
+    if (c.tool == ToolMode.text) return false;
     switch (e.kind) {
       case PointerDeviceKind.stylus:
       case PointerDeviceKind.invertedStylus:
@@ -144,6 +158,7 @@ class _InkCanvasViewState extends State<InkCanvasView>
       case ToolMode.eraser:
       case ToolMode.lasso:
       case ToolMode.laser:
+      case ToolMode.text:
         return true;
     }
   }
@@ -166,6 +181,7 @@ class _InkCanvasViewState extends State<InkCanvasView>
         } else {
           _movingSelection = false;
           c.beginLasso(world);
+          _startPasteHold(e.localPosition, world);
         }
       case ToolMode.shape:
         c.beginShape(world);
@@ -173,6 +189,8 @@ class _InkCanvasViewState extends State<InkCanvasView>
         _laserFade.stop();
         _laserFade.value = 0;
         c.beginLaser(world);
+      case ToolMode.text:
+        break;
       case ToolMode.pen:
       case ToolMode.highlighter:
         c.beginStroke(world, _pressure(e));
@@ -189,13 +207,19 @@ class _InkCanvasViewState extends State<InkCanvasView>
       case ToolMode.lasso:
         if (_movingSelection) {
           c.moveSelection(world);
-        } else {
+        } else if (!_pastedByHold) {
+          final anchor = _pasteAnchor;
+          if (anchor != null && (e.localPosition - anchor).distance > 8) {
+            _cancelPasteHold();
+          }
           c.extendLasso(world);
         }
       case ToolMode.shape:
         c.updateShape(world);
       case ToolMode.laser:
         c.extendLaser(world);
+      case ToolMode.text:
+        break;
       case ToolMode.pen:
       case ToolMode.highlighter:
         c.extendStroke(world, _pressure(e));
@@ -215,12 +239,14 @@ class _InkCanvasViewState extends State<InkCanvasView>
         _eraserPos.value = null;
         c.endErase();
       case ToolMode.lasso:
+        _cancelPasteHold();
         if (_movingSelection) {
           c.endMoveSelection();
-        } else {
+        } else if (!_pastedByHold) {
           c.endLasso();
         }
         _movingSelection = false;
+        _pastedByHold = false;
       case ToolMode.shape:
         if (commit) {
           c.commitShape();
@@ -229,6 +255,8 @@ class _InkCanvasViewState extends State<InkCanvasView>
         }
       case ToolMode.laser:
         _laserFade.forward(from: 0);
+      case ToolMode.text:
+        break;
       case ToolMode.pen:
       case ToolMode.highlighter:
         if (commit) {
@@ -249,6 +277,45 @@ class _InkCanvasViewState extends State<InkCanvasView>
     _holdTimer = Timer(const Duration(milliseconds: 550), () {
       if (_drawPointer == null || !mounted) return;
       c.recognizeHeldStroke();
+    });
+  }
+
+  /// Lasso: Bleibt der Stift 0,5 s an einer Stelle stehen und gibt es etwas
+  /// in der Zwischenablage, wird es genau dort eingefügt (wie Goodnotes).
+  void _startPasteHold(Offset screen, Offset world) {
+    _pasteTimer?.cancel();
+    _pastedByHold = false;
+    if (!c.canPaste) return;
+    _pasteAnchor = screen;
+    _pasteTimer = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted || _pastedByHold) return;
+      _pastedByHold = true;
+      c.lassoPath.value = const [];
+      c.paste(at: world);
+      HapticFeedback.mediumImpact().ignore();
+    });
+  }
+
+  void _cancelPasteHold() {
+    _pasteTimer?.cancel();
+    _pasteTimer = null;
+    _pasteAnchor = null;
+  }
+
+  /// Finger (bei „Nur Stift“) lange auf eine Stelle halten: einfügen.
+  void _startFingerPasteHold(PointerDownEvent e) {
+    if (c.tool != ToolMode.lasso || !c.canPaste || !c.drawingEnabled) return;
+    final world = c.camera.toWorld(e.localPosition);
+    if (c.isInsideSelection(world)) return;
+    final pointer = e.pointer;
+    _pasteTimer?.cancel();
+    _pasteTimer = Timer(const Duration(milliseconds: 550), () {
+      // Nur wenn der Finger noch liegt und sich nicht bewegt hat.
+      if (!mounted || _tapPointer != pointer || _touches.length > 1) return;
+      _tapPointer = null;
+      _swipePointer = null;
+      c.paste(at: world);
+      HapticFeedback.mediumImpact().ignore();
     });
   }
 
@@ -274,8 +341,10 @@ class _InkCanvasViewState extends State<InkCanvasView>
     if (_touches.isEmpty && _panPointer == null) {
       _tapPointer = e.pointer;
       _tapStart = e.localPosition;
+      if (e.kind == PointerDeviceKind.touch) _startFingerPasteHold(e);
     } else {
       _tapPointer = null;
+      _cancelPasteHold();
     }
     if (e.kind == PointerDeviceKind.mouse ||
         e.kind == PointerDeviceKind.stylus ||
@@ -305,6 +374,7 @@ class _InkCanvasViewState extends State<InkCanvasView>
         _tapStart != null &&
         (e.localPosition - _tapStart!).distance > 8) {
       _tapPointer = null;
+      if (_drawPointer == null) _cancelPasteHold();
     }
     final start = _touchStarts[e.pointer];
     if (start != null && (e.localPosition - start).distance > 12) {
@@ -348,8 +418,16 @@ class _InkCanvasViewState extends State<InkCanvasView>
 
   void _onUp(PointerEvent e, {required bool commit}) {
     if (e.pointer == _tapPointer && e is PointerUpEvent) {
-      widget.onBackgroundTap?.call(c.camera.toWorld(e.localPosition));
+      final world = c.camera.toWorld(e.localPosition);
+      if (c.drawingEnabled &&
+          c.tool == ToolMode.text &&
+          widget.onTextTap != null) {
+        widget.onTextTap!(world);
+      } else {
+        widget.onBackgroundTap?.call(world);
+      }
     }
+    if (e.pointer == _tapPointer && _drawPointer == null) _cancelPasteHold();
     if (e.pointer == _tapPointer) _tapPointer = null;
     if (e.pointer == _swipePointer) {
       _swipePointer = null;
@@ -650,7 +728,7 @@ class _SelectionActions extends StatelessWidget {
         return LayoutBuilder(builder: (context, constraints) {
           final size = constraints.biggest;
           final top = c.camera.toScreen(b.topCenter);
-          const panelWidth = 300.0;
+          const panelWidth = 440.0;
           final left = (top.dx - panelWidth / 2)
               .clamp(8.0, math.max(8.0, size.width - panelWidth - 8))
               .toDouble();
@@ -665,21 +743,32 @@ class _SelectionActions extends StatelessWidget {
                 left: left,
                 top: y,
                 child: FloatingPanel(
+                  child: ConstrainedBox(
+                  constraints:
+                      BoxConstraints(maxWidth: math.max(120.0, size.width - 40)),
+                  child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      ToolButton(
-                        icon: Icons.content_cut,
-                        label: 'Ausschneiden',
-                        onTap: c.cutSelection,
-                      ),
-                      ToolButton(
-                        icon: Icons.content_copy,
+                      _ActionPill(
+                        icon: Icons.content_copy_rounded,
                         label: 'Kopieren',
-                        onTap: c.copySelection,
+                        onTap: () {
+                          c.copySelection();
+                          _copiedHint(context);
+                        },
                       ),
-                      ToolButton(
-                        icon: Icons.copy_all_outlined,
+                      _ActionPill(
+                        icon: Icons.content_cut_rounded,
+                        label: 'Ausschneiden',
+                        onTap: () {
+                          c.cutSelection();
+                          _copiedHint(context);
+                        },
+                      ),
+                      _ActionPill(
+                        icon: Icons.copy_all_rounded,
                         label: 'Duplizieren',
                         onTap: c.duplicateSelection,
                       ),
@@ -702,12 +791,57 @@ class _SelectionActions extends StatelessWidget {
                       ),
                     ],
                   ),
+                  ),
+                  ),
                 ),
               ),
             ],
           );
         });
       },
+    );
+  }
+}
+
+void _copiedHint(BuildContext context) {
+  final m = ScaffoldMessenger.maybeOf(context);
+  m?.hideCurrentSnackBar();
+  m?.showSnackBar(const SnackBar(
+    duration: Duration(seconds: 4),
+    content: Text('Kopiert. Zum Einfügen mit dem Lasso lange auf eine Stelle '
+        'drücken – auch auf einer anderen Seite oder in einem anderen '
+        'Notizbuch.'),
+  ));
+}
+
+/// Knopf mit Symbol und Text in der Auswahl-Leiste.
+class _ActionPill extends StatelessWidget {
+  const _ActionPill(
+      {required this.icon, required this.label, required this.onTap});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 17, color: mf.text),
+            const SizedBox(width: 6),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600, color: mf.text)),
+          ],
+        ),
+      ),
     );
   }
 }

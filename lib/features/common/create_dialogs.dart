@@ -66,6 +66,7 @@ bool isDarkPaper(Paper p) =>
 /// Fragt, ob die Schriftfarben ans neue Papier angepasst werden sollen.
 Future<void> offerRecolor(BuildContext context, List<String> inkIds,
     {required bool toDark}) async {
+  final texts = Services.maybeOf(context)?.texts;
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -88,6 +89,16 @@ Future<void> offerRecolor(BuildContext context, List<String> inkIds,
   if (ok != true) return;
   for (final id in inkIds) {
     await recolorInk(id, toDark: toDark);
+    // Textfelder ebenso anpassen.
+    if (texts != null) {
+      for (final t in texts.items(id)) {
+        final mapped = mapInkColor(t.color, toDark: toDark);
+        if (mapped != null && mapped != t.color) {
+          t.color = mapped;
+          texts.update(t, notify: false);
+        }
+      }
+    }
   }
 }
 
@@ -261,7 +272,7 @@ Future<void> importDocument(BuildContext context) async {
     }
   }
   navigator.pop();
-  progress.dispose();
+  // progress nicht freigeben: Der Dialog blendet noch aus.
   if (failed.isNotEmpty) {
     messenger?.showSnackBar(SnackBar(
         content: Text('Nicht lesbar: ${failed.join(', ')}')));

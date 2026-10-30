@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mindflow/app/services.dart';
 import 'package:mindflow/app/theme.dart';
+import 'package:mindflow/data/database.dart';
+import 'package:mindflow/data/text_repository.dart';
+import 'package:mindflow/features/study/study_screen.dart';
+import 'package:mindflow/ink/text_layer.dart';
+import 'package:mindflow/ui/futuristic.dart';
 import 'package:mindflow/ink/camera.dart';
 import 'package:mindflow/ink/ink_controller.dart';
 import 'package:mindflow/ink/surface_overlays.dart';
@@ -96,5 +102,100 @@ void main() {
     await tester.pump();
     expect(find.text('165 %'), findsOneWidget);
     await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('Textfeld anlegen, tippen, speichern – leere verschwinden',
+      (tester) async {
+    final db = AppDatabase.inMemory();
+    addTearDown(db.dispose);
+    final repo = TextRepository(db.raw);
+    final c = InkController(stylusOnly: true)
+      ..drawBounds = const Rect.fromLTWH(0, 0, 595, 842)
+      ..setTool(ToolMode.text);
+    final key = GlobalKey<TextLayerState>();
+    await tester.pumpWidget(_app(SizedBox(
+      width: 800,
+      height: 600,
+      child: Stack(children: [
+        Positioned.fill(
+          child: TextLayer(
+              key: key, ownerId: 'seite', controller: c, repo: repo),
+        ),
+      ]),
+    )));
+    key.currentState!.createAt(const Offset(60, 80));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'Hallo MindFlow');
+    key.currentState!.finishEditing();
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Hallo MindFlow'), findsOneWidget);
+    expect(repo.items('seite').single.text, 'Hallo MindFlow');
+
+    // Leeres Feld: verschwindet beim Beenden.
+    key.currentState!.createAt(const Offset(60, 300));
+    await tester.pumpAndSettle();
+    key.currentState!.finishEditing();
+    await tester.pumpAndSettle();
+    expect(repo.items('seite').length, 1);
+
+    // Außerhalb des Blatts entsteht kein Textfeld.
+    key.currentState!.createAt(const Offset(-50, -50));
+    await tester.pumpAndSettle();
+    expect(key.currentState!.editing, isFalse);
+
+    // Werkzeug wechseln beendet die Bearbeitung.
+    key.currentState!.createAt(const Offset(60, 500));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Zweites');
+    c.setTool(ToolMode.pen);
+    await tester.pumpAndSettle();
+    expect(repo.items('seite').length, 2);
+    expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets('Leuchtknopf und Fortschrittsring', (tester) async {
+    var taps = 0;
+    await tester.pumpWidget(_app(Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GlowButton(label: 'Los', onPressed: () => taps++),
+        const ProgressRing(value: 0.5),
+        const MindFlowLogo(),
+        const StatusPill('Neu'),
+      ],
+    )));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Los'));
+    expect(taps, 1);
+    expect(find.text('50 %'), findsOneWidget);
+  });
+
+  testWidgets('Lernrunde: Antwort zeigen, bewerten, fertig', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final services = AppServices.inMemory();
+    services.study.create(front: 'Was macht DHCP?', back: 'Vergibt IPs');
+    await tester.pumpWidget(Services(
+      services: services,
+      child: MaterialApp(
+        theme: buildTheme(Brightness.dark),
+        home: const Scaffold(body: StudyScreen()),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('1 fällig'), findsWidgets);
+    await tester.tap(find.text('Lernen starten'));
+    await tester.pumpAndSettle();
+    expect(find.text('Was macht DHCP?'), findsOneWidget);
+    await tester.tap(find.text('Antwort zeigen'));
+    await tester.pumpAndSettle();
+    expect(find.text('Vergibt IPs'), findsOneWidget);
+    await tester.tap(find.text('Gut'));
+    await tester.pumpAndSettle();
+    expect(find.text('Runde geschafft!'), findsOneWidget);
+    expect(services.study.stats(DateTime.now()).due, 0);
   });
 }

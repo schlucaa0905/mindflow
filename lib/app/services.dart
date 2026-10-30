@@ -6,13 +6,17 @@ import 'package:flutter/material.dart';
 import '../data/canvas_repository.dart';
 import '../data/database.dart';
 import '../data/object_repository.dart';
+import '../data/study_repository.dart';
+import '../data/text_repository.dart';
 import '../ink/tool_settings.dart';
 
 /// Alle zentralen Dienste der App an einer Stelle.
 class AppServices {
   AppServices(this.db)
       : objects = ObjectRepository(db.raw),
-        canvas = CanvasRepository(db.raw) {
+        canvas = CanvasRepository(db.raw),
+        texts = TextRepository(db.raw) {
+    study = StudyRepository(db.raw, objects);
     themeMode.value = switch (objects.setting('theme')) {
       'light' => ThemeMode.light,
       'dark' => ThemeMode.dark,
@@ -27,6 +31,12 @@ class AppServices {
   final AppDatabase db;
   final ObjectRepository objects;
   final CanvasRepository canvas;
+
+  /// Textfelder (Tastatur) auf Seiten, PDFs und Canvas.
+  final TextRepository texts;
+
+  /// Karteikarten und Lernplan.
+  late final StudyRepository study;
   final ValueNotifier<ThemeMode> themeMode = ValueNotifier(ThemeMode.system);
 
   /// Werkzeug-Einstellungen, app-weit geteilt und dauerhaft gespeichert.

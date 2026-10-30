@@ -31,6 +31,10 @@ Future<void> openObject(BuildContext context, MfObject o,
       return nav.push(MaterialPageRoute<void>(
           builder: (_) => KnowledgeEntryScreen(entryId: o.id)));
     case ObjectType.flashcard:
-      return Future.value();
+      // Karteikarten öffnen ihren Wissenseintrag (dort stehen alle Karten).
+      final entryId = o.parentId;
+      if (entryId == null) return Future.value();
+      return nav.push(MaterialPageRoute<void>(
+          builder: (_) => KnowledgeEntryScreen(entryId: entryId)));
   }
 }

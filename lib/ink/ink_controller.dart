@@ -128,6 +128,10 @@ class InkController extends ChangeNotifier {
 
   void setEraserSize(double s) => settings.update(() => settings.eraserSize = s);
 
+  double get textSize => settings.textSize;
+  void setTextSize(double v) =>
+      settings.update(() => settings.textSize = v.clamp(8, 96).toDouble());
+
   void setShapeKind(ShapeKind k) => settings.update(() {
         settings.shapeKind = k;
         settings.tool = ToolMode.shape;
@@ -757,17 +761,21 @@ class InkController extends ChangeNotifier {
 
   bool get canPaste => clipboard.isNotEmpty;
 
-  /// Fügt die Zwischenablage in der Mitte des sichtbaren Bereichs ein.
-  void paste() {
+  /// Fügt die Zwischenablage ein – an der Stelle [at] (Weltkoordinate,
+  /// z. B. langes Drücken mit dem Lasso) oder sonst in der Mitte des
+  /// sichtbaren Bereichs. Auf einem Blatt bleibt alles auf dem Blatt.
+  void paste({Offset? at}) {
     if (clipboard.isEmpty) return;
     var bounds = clipboard.first.bounds;
     for (final s in clipboard.skip(1)) {
       bounds = bounds.expandToInclude(s.bounds);
     }
     final view = camera.viewport;
-    final target = view.isEmpty
-        ? bounds.center + const Offset(24, 24)
-        : camera.toWorld(Offset(view.width / 2, view.height / 2));
+    var target = at ??
+        (view.isEmpty
+            ? bounds.center + const Offset(24, 24)
+            : camera.toWorld(Offset(view.width / 2, view.height / 2)));
+    target = _keepOnSheet(target, bounds.size);
     final shift = target - bounds.center;
     final copies = [for (final s in clipboard) _copy(s, offset: shift)];
     scene.addAll(copies);
@@ -775,6 +783,20 @@ class InkController extends ChangeNotifier {
     settings.update(() => settings.tool = ToolMode.lasso);
     selection = copies;
     notifyListeners();
+  }
+
+  /// Verschiebt einen Mittelpunkt so, dass ein Inhalt der Größe [size]
+  /// möglichst ganz auf dem Blatt liegt.
+  Offset _keepOnSheet(Offset center, Size size) {
+    final b = drawBounds;
+    if (b == null) return center;
+    double fit(double v, double lo, double hi, double half) {
+      if (hi - lo <= half * 2) return (lo + hi) / 2;
+      return v.clamp(lo + half, hi - half).toDouble();
+    }
+
+    return Offset(fit(center.dx, b.left, b.right, size.width / 2),
+        fit(center.dy, b.top, b.bottom, size.height / 2));
   }
 
   void _replaceSelection(Stroke Function(Stroke) transform) {

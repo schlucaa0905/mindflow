@@ -8,6 +8,9 @@ import 'ink_controller.dart';
 import 'ink_toolbar.dart';
 import 'tool_glyphs.dart';
 
+const _textSizes = [14.0, 18.0, 26.0, 36.0];
+const _textSizeLabels = ['S', 'M', 'L', 'XL'];
+
 /// Moderne Werkzeugzeile im Goodnotes-Stil – fest unter der Kopfleiste.
 ///
 /// Mitte: die Werkzeuge in einer Kapsel. Rechts daneben: was zum gewählten
@@ -78,16 +81,31 @@ class ToolRow extends StatelessWidget {
           if (c.selection.isNotEmpty)
             ..._colorsAndWidth(context, c, colorsOnly: true)
           else
-            Text('Einkreisen – ein Teil des Strichs genügt',
+              Text(
+                c.canPaste
+                    ? 'Einkreisen · lange drücken: hier einfügen'
+                    : 'Einkreisen – ein Teil des Strichs genügt',
                 style: TextStyle(fontSize: 13, color: mf.textMuted)),
           if (c.canPaste) ...[
             const SizedBox(width: 10),
-            _RoundIcon(
-              icon: Icons.content_paste,
-              tooltip: 'Einfügen',
-              onTap: c.paste,
-            ),
+            _PasteChip(onTap: () => c.paste()),
           ],
+        ];
+      case ToolMode.text:
+        return [
+          ..._colorsAndWidth(context, c, colorsOnly: true),
+          const SizedBox(width: 10),
+          _Capsule(children: [
+            for (var i = 0; i < _textSizes.length; i++)
+              _TextChip(
+                label: _textSizeLabels[i],
+                selected: (c.textSize - _textSizes[i]).abs() < 0.5,
+                onTap: () => c.setTextSize(_textSizes[i]),
+              ),
+          ]),
+          const SizedBox(width: 10),
+          Text('Tippe aufs Blatt, um zu schreiben',
+              style: TextStyle(fontSize: 13, color: mf.textMuted)),
         ];
       case ToolMode.laser:
         return [
@@ -306,6 +324,13 @@ class _ToolCapsule extends StatelessWidget {
         ),
         _ToolItem(
           c: c,
+          tool: ToolMode.text,
+          glyph: GlyphKind.text,
+          tip: c.penColor,
+          label: 'Text mit Tastatur (T)',
+        ),
+        _ToolItem(
+          c: c,
           tool: ToolMode.shape,
           glyph: GlyphKind.shape,
           tip: context.mf.accent,
@@ -359,8 +384,24 @@ class _ToolItem extends StatelessWidget {
               height: 46,
               margin: const EdgeInsets.symmetric(horizontal: 1),
               decoration: BoxDecoration(
-                color: selected ? mf.accentSoft : Colors.transparent,
-                borderRadius: BorderRadius.circular(12),
+                gradient: selected
+                    ? LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          mf.accent.withValues(alpha: 0.30),
+                          mf.accent2.withValues(alpha: 0.10),
+                        ],
+                      )
+                    : null,
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(
+                    color: selected
+                        ? mf.accent.withValues(alpha: 0.45)
+                        : Colors.transparent),
+                boxShadow: selected
+                    ? [BoxShadow(color: mf.glow, blurRadius: 14, spreadRadius: -6)]
+                    : null,
               ),
               alignment: Alignment.bottomCenter,
               child: ToolGlyph(
@@ -419,9 +460,9 @@ class _Capsule extends StatelessWidget {
     return Container(
       padding: EdgeInsets.all(padding),
       decoration: BoxDecoration(
-        color: mf.surfaceRaised,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: mf.border.withValues(alpha: 0.6)),
+        color: mf.surfaceRaised.withValues(alpha: mf.isDark ? 0.7 : 1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: mf.glassEdge),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: children),
     );
@@ -574,6 +615,47 @@ class _RoundIcon extends StatelessWidget {
             border: Border.all(color: mf.border),
           ),
           child: Icon(icon, size: small ? 16 : 18, color: mf.text),
+        ),
+      ),
+    );
+  }
+}
+
+/// Deutlicher „Einfügen“-Knopf, sobald etwas kopiert wurde.
+class _PasteChip extends StatelessWidget {
+  const _PasteChip({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    return Tooltip(
+      message: 'In der Mitte einfügen (oder mit dem Lasso lange drücken)',
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            gradient: mf.gradient,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(color: mf.glow, blurRadius: 14, spreadRadius: -4),
+            ],
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.content_paste_rounded, size: 16, color: Colors.white),
+              SizedBox(width: 6),
+              Text('Einfügen',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13)),
+            ],
+          ),
         ),
       ),
     );

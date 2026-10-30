@@ -2,10 +2,13 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../app/services.dart';
 import '../../app/theme.dart';
+import '../../data/text_repository.dart';
 import '../../data/models.dart';
 import '../../ink/stroke.dart';
 import '../../ink/stroke_renderer.dart';
+import '../../ink/text_layer.dart';
 import '../../storage/ink_store.dart';
 import '../../ui/clean_menu.dart';
 import 'page_painter.dart';
@@ -159,11 +162,13 @@ class PageThumbnail extends StatefulWidget {
 
 class _PageThumbnailState extends State<PageThumbnail> {
   List<Stroke> _strokes = const [];
+  List<TextItem> _texts = const [];
   ui.Image? _image;
 
   @override
   void initState() {
     super.initState();
+    _texts = Services.maybeOf(context)?.texts.items(widget.inkId) ?? const [];
     InkStore(widget.inkId).load().then((s) {
       if (mounted) setState(() => _strokes = s);
     }).catchError((_) {});
@@ -187,6 +192,7 @@ class _PageThumbnailState extends State<PageThumbnail> {
             paper: widget.paper,
             template: widget.template,
             strokes: _strokes,
+            texts: _texts,
             image: _image,
           ),
         ),
@@ -201,6 +207,7 @@ class _ThumbPainter extends CustomPainter {
     required this.paper,
     required this.template,
     required this.strokes,
+    required this.texts,
     required this.image,
   });
 
@@ -208,6 +215,7 @@ class _ThumbPainter extends CustomPainter {
   final PaperStyle paper;
   final PageTemplate template;
   final List<Stroke> strokes;
+  final List<TextItem> texts;
   final ui.Image? image;
 
   @override
@@ -233,6 +241,7 @@ class _ThumbPainter extends CustomPainter {
     for (final st in strokes) {
       if (!st.deleted && st.tool != InkTool.highlighter) paintStroke(canvas, st);
     }
+    paintTextItems(canvas, texts);
     canvas.restore();
   }
 

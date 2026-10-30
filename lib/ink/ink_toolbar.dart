@@ -251,6 +251,7 @@ IconData toolIcon(InkController c) => switch (c.tool) {
       ToolMode.lasso => Icons.gesture,
       ToolMode.shape => shapeIcon(c.shapeKind),
       ToolMode.laser => Icons.highlight_alt,
+      ToolMode.text => Icons.title,
     };
 
 /// Trennlinie, passend zur Ausrichtung der Leiste.

@@ -12,6 +12,7 @@ import 'ink_canvas_view.dart';
 import 'ink_controller.dart';
 import 'ink_session.dart';
 import 'surface_overlays.dart';
+import 'text_layer.dart';
 import 'tool_row.dart';
 
 /// Eine fertige Schreibfläche für ein Objekt: Zeichnen, Werkzeugleiste,
@@ -90,6 +91,7 @@ class InkSurfaceState extends State<InkSurface>
     value: widget.enterFrom == 0 ? 1 : 0,
   );
   late final InkSession session;
+  final GlobalKey<TextLayerState> _textKey = GlobalKey();
   bool _fitted = false;
 
   @override
@@ -115,7 +117,10 @@ class InkSurfaceState extends State<InkSurface>
   }
 
   /// Sofort speichern (z. B. vor dem Duplizieren einer Seite).
-  Future<void> flush() => session.saveNow();
+  Future<void> flush() {
+    _textKey.currentState?.finishEditing();
+    return session.saveNow();
+  }
 
   @override
   void didUpdateWidget(InkSurface oldWidget) {
@@ -193,10 +198,24 @@ class InkSurfaceState extends State<InkSurface>
     LogicalKeyboardKey.keyL: ToolMode.lasso,
     LogicalKeyboardKey.keyS: ToolMode.shape,
     LogicalKeyboardKey.keyR: ToolMode.laser,
+    LogicalKeyboardKey.keyT: ToolMode.text,
   };
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    // Wird gerade in ein Textfeld getippt, gehören alle Tasten dem Text.
+    final focused = FocusManager.instance.primaryFocus;
+    final typing = focused != null &&
+        focused != node &&
+        focused.context?.findAncestorStateOfType<EditableTextState>() != null;
+    if (typing) {
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        _textKey.currentState?.finishEditing();
+        node.requestFocus();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
     final c = controller;
     final key = event.logicalKey;
     final hw = HardwareKeyboard.instance;
@@ -298,6 +317,7 @@ class InkSurfaceState extends State<InkSurface>
           if (mounted) fit(size);
         });
       }
+      final services = Services.maybeOf(context);
       return Stack(
         children: [
           Positioned.fill(
@@ -306,8 +326,18 @@ class InkSurfaceState extends State<InkSurface>
               background: widget.backgroundBuilder?.call(controller.camera),
               onBackgroundTap: widget.onBackgroundTap,
               onSwipe: widget.onSwipe == null ? null : _handleSwipe,
+              onTextTap: (world) => _textKey.currentState?.createAt(world),
             ),
           ),
+          if (services != null)
+            Positioned.fill(
+              child: TextLayer(
+                key: _textKey,
+                ownerId: widget.inkId,
+                controller: controller,
+                repo: services.texts,
+              ),
+            ),
           if (widget.overlayBuilder != null)
             Positioned.fill(child: widget.overlayBuilder!(context, controller)),
           if (!session.loaded) const Center(child: CircularProgressIndicator()),

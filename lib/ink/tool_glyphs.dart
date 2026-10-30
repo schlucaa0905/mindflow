@@ -11,7 +11,8 @@ enum GlyphKind {
   eraser,
   lasso,
   shape,
-  laser
+  laser,
+  text
 }
 
 /// Gezeichnete Werkzeuge wie in Goodnotes: Stifte stehen aufrecht, die
@@ -93,7 +94,33 @@ class _GlyphPainter extends CustomPainter {
         _lasso(canvas, size, cx);
       case GlyphKind.shape:
         _shapes(canvas, size, cx);
+      case GlyphKind.text:
+        _text(canvas, size, cx);
     }
+  }
+
+  /// Ein großes „T“ mit blinkendem Schreibstrich daneben.
+  void _text(Canvas canvas, Size size, double cx) {
+    final s = 1 + 0.08 * lift;
+    canvas.save();
+    canvas.translate(cx, size.height / 2);
+    canvas.scale(s);
+    canvas.translate(-cx, -size.height / 2);
+    final paint = Paint()
+      ..color = outline
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(cx - 9, 9), Offset(cx + 5, 9), paint);
+    canvas.drawLine(Offset(cx - 2, 9), Offset(cx - 2, 27), paint);
+    canvas.drawLine(
+        Offset(cx + 9, 16),
+        Offset(cx + 9, 29),
+        Paint()
+          ..color = tip
+          ..strokeWidth = 2
+          ..strokeCap = StrokeCap.round);
+    canvas.restore();
   }
 
   Paint get _bodyPaint => Paint()..color = body;
@@ -204,6 +231,7 @@ class _GlyphPainter extends CustomPainter {
       }
       case GlyphKind.lasso:
       case GlyphKind.shape:
+      case GlyphKind.text:
         break;
     }
   }

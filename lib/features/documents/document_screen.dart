@@ -11,6 +11,7 @@ import '../../export/pdf_export.dart';
 import '../../ink/camera.dart';
 import '../../ink/ink_controller.dart';
 import '../../ink/ink_surface.dart';
+import '../../ink/text_layer.dart';
 import '../../storage/ink_store.dart';
 import '../../ui/clean_menu.dart';
 import '../../ui/editor_bar.dart';
@@ -148,9 +149,11 @@ class _DocumentScreenState extends State<DocumentScreen> {
         final rect = _rectFor(i);
         final img = await PdfService.renderPage(doc, i, dpi: 144);
         final strokes = await InkStore(PdfService.inkIdFor(doc, i)).load();
+        final texts = _s.texts.items(PdfService.inkIdFor(doc, i));
         pages.add(await renderPage(
           page: rect,
           strokes: strokes,
+          paintForeground: (canvas) => paintTextItems(canvas, texts),
           paintBackground: (canvas) {
             canvas.drawRect(rect, Paint()..color = Colors.white);
             if (img != null) {

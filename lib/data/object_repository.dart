@@ -75,13 +75,18 @@ class ObjectRepository extends ChangeNotifier {
     final q = text.trim();
     if (q.isEmpty) return [];
     final like = '%${_escapeLike(q)}%';
-    // Titel aller Hauptobjekte; bei Wissenseinträgen auch der Text.
+    // Titel aller Hauptobjekte; bei Wissenseinträgen auch Text und Tags,
+    // bei Karteikarten auch die Rückseite. Gesucht wird nur in den Werten,
+    // nicht in den internen Feldnamen.
+    const esc = r'\';
     return _query(
         "SELECT * FROM objects WHERE type IN ('notebook','board','document',"
-        "'knowledge') AND deleted_at IS NULL AND (title LIKE ? ESCAPE ? "
-        "OR (type = 'knowledge' AND data LIKE ? ESCAPE ?)) "
+        "'knowledge','flashcard') AND deleted_at IS NULL AND (title LIKE ? ESCAPE ? "
+        "OR (type = 'knowledge' AND (json_extract(data, '\$.body') LIKE ? ESCAPE ? "
+        "OR json_extract(data, '\$.tags') LIKE ? ESCAPE ?)) "
+        "OR (type = 'flashcard' AND json_extract(data, '\$.back') LIKE ? ESCAPE ?)) "
         'ORDER BY archived, updated_at DESC LIMIT 60',
-        [like, r'\', like, r'\']);
+        [like, esc, like, esc, like, esc, like, esc]);
   }
 
   // --- Schreiben --------------------------------------------------------

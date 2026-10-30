@@ -18,12 +18,13 @@ class ExportPage {
   final Uint8List png;
 }
 
-/// Zeichnet eine Seite (Hintergrund + Handschrift) als PNG.
+/// Zeichnet eine Seite (Hintergrund + Handschrift + Text) als PNG.
 /// [scale] 2 ergibt 144 dpi – scharf genug zum Drucken und Teilen.
 Future<ExportPage> renderPage({
   required Rect page,
   required void Function(Canvas canvas) paintBackground,
   required List<Stroke> strokes,
+  void Function(Canvas canvas)? paintForeground,
   double scale = 2,
 }) async {
   final recorder = ui.PictureRecorder();
@@ -38,6 +39,8 @@ Future<ExportPage> renderPage({
   for (final s in strokes) {
     if (!s.deleted && s.tool != InkTool.highlighter) paintStroke(canvas, s);
   }
+  // Textfelder liegen über der Handschrift.
+  paintForeground?.call(canvas);
   final picture = recorder.endRecording();
   final image = await picture.toImage(
       (page.width * scale).round(), (page.height * scale).round());

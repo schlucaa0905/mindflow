@@ -36,6 +36,12 @@ class AppDatabase {
       }
       raw.userVersion = 1;
     }
+    if (version < 2) {
+      for (final sql in _schemaV2) {
+        raw.execute(sql);
+      }
+      raw.userVersion = 2;
+    }
   }
 
   void dispose() => raw.dispose();
@@ -110,4 +116,26 @@ const _schemaV1 = <String>[
   ''',
   'CREATE INDEX idx_edges_board ON canvas_edges(board_id)',
   'CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+];
+
+/// Version 2: Textfelder (mit der Tastatur geschrieben) auf Seiten,
+/// PDF-Seiten und Canvas-Flächen. `owner_id` ist dieselbe ID, unter der
+/// auch die Handschrift gespeichert ist.
+const _schemaV2 = <String>[
+  '''
+  CREATE TABLE page_items (
+    id          TEXT PRIMARY KEY,
+    owner_id    TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'text',
+    x           REAL NOT NULL,
+    y           REAL NOT NULL,
+    w           REAL NOT NULL,
+    h           REAL NOT NULL DEFAULT 0,
+    data        TEXT NOT NULL DEFAULT '{}',
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    deleted_at  INTEGER
+  )
+  ''',
+  'CREATE INDEX idx_items_owner ON page_items(owner_id)',
 ];

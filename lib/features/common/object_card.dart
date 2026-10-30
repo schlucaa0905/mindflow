@@ -5,6 +5,7 @@ import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
 import '../../ui/clean_menu.dart';
+import '../../ui/futuristic.dart';
 import '../../ui/widgets.dart';
 import '../notebook/notebook_cover.dart';
 import 'create_dialogs.dart';
@@ -43,6 +44,7 @@ class _NotebookCard extends StatelessWidget {
             child: MouseRegion(
               cursor: SystemMouseCursors.click,
               child: Center(
+                child: HoverLift(
                 child: AspectRatio(
                   aspectRatio: 0.74,
                   child: DecoratedBox(
@@ -72,6 +74,7 @@ class _NotebookCard extends StatelessWidget {
                       ],
                     ),
                   ),
+                ),
                 ),
               ),
             ),

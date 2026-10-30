@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import '../app/theme.dart';
 import '../ink/ink_controller.dart';
 
-/// Kopfleiste im Editor (Notizbuch, Dokument, Canvas) im Stil von
-/// Goodnotes: oben die Navigation, darunter die Werkzeuge.
+/// Kopfleiste im Editor (Notizbuch, Dokument, Canvas): eine schwebende
+/// „Insel“ über dem Schreibtisch – oben die Navigation, darunter die
+/// Werkzeuge. Sie liegt über, nicht auf dem Blatt: Das Blatt kann sie
+/// nie verdecken.
 class EditorTopBar extends StatelessWidget {
   const EditorTopBar({super.key, required this.nav, this.tools});
 
@@ -16,24 +18,67 @@ class EditorTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mf = context.mf;
-    return Material(
-      color: mf.surface,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: mf.border, width: 0.8)),
-          boxShadow: const [
-            BoxShadow(
-                color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 4)),
-          ],
-        ),
-        child: SafeArea(
-          bottom: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(height: 50, child: nav),
-              if (tools != null) SizedBox(height: 58, child: tools),
-            ],
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+        child: Material(
+          type: MaterialType.transparency,
+          child: Container(
+            decoration: BoxDecoration(
+              color: mf.surface,
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color.lerp(mf.surface, mf.accent, mf.isDark ? 0.05 : 0.02)!,
+                  mf.surface,
+                ],
+              ),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: mf.glassEdge),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: mf.isDark ? 0.45 : 0.10),
+                  blurRadius: 26,
+                  offset: const Offset(0, 10),
+                ),
+                BoxShadow(
+                  color: mf.glow.withValues(alpha: 0.12),
+                  blurRadius: 30,
+                  spreadRadius: -10,
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Feine Lichtkante im Markenverlauf.
+                  Container(
+                    height: 2,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [
+                        mf.accent.withValues(alpha: 0),
+                        mf.accent.withValues(alpha: 0.7),
+                        mf.accent2.withValues(alpha: 0.7),
+                        mf.accent2.withValues(alpha: 0),
+                      ]),
+                    ),
+                  ),
+                  SizedBox(height: 48, child: nav),
+                  if (tools != null) ...[
+                    Container(
+                      height: 1,
+                      margin: const EdgeInsets.symmetric(horizontal: 14),
+                      color: mf.border.withValues(alpha: 0.6),
+                    ),
+                    SizedBox(height: 58, child: tools),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -153,8 +198,17 @@ class NavIconButton extends StatelessWidget {
           width: 38,
           height: 38,
           decoration: BoxDecoration(
-            color: active ? mf.accentSoft : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
+            gradient: active
+                ? LinearGradient(colors: [
+                    mf.accent.withValues(alpha: 0.28),
+                    mf.accent2.withValues(alpha: 0.12),
+                  ])
+                : null,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: active
+                    ? mf.accent.withValues(alpha: 0.4)
+                    : Colors.transparent),
           ),
           child: Icon(icon,
               size: 20,
@@ -193,7 +247,8 @@ class PagePager extends StatelessWidget {
       height: 34,
       decoration: BoxDecoration(
         color: mf.surfaceRaised,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: mf.glassEdge),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

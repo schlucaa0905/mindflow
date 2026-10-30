@@ -16,12 +16,14 @@ class FloatingPanel extends StatelessWidget {
       padding:
           padding ?? const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: mf.surface.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: mf.border),
-        boxShadow: const [
+        color: mf.surface.withValues(alpha: 0.97),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: mf.glassEdge),
+        boxShadow: [
           BoxShadow(
-              color: Color(0x33000000), blurRadius: 24, offset: Offset(0, 8)),
+              color: Colors.black.withValues(alpha: mf.isDark ? 0.4 : 0.12),
+              blurRadius: 28,
+              offset: const Offset(0, 10)),
         ],
       ),
       child: child,
@@ -184,11 +186,25 @@ class SectionHeader extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 12, top: 8),
       child: Row(
         children: [
-          Text(title,
+          Container(
+            width: 3,
+            height: 15,
+            margin: const EdgeInsets.only(right: 10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [context.mf.accent, context.mf.accent2],
+              ),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Text(title.toUpperCase(),
               style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: context.mf.text)),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.4,
+                  color: context.mf.textMuted)),
           const Spacer(),
           if (action != null) action!,
         ],
@@ -220,9 +236,10 @@ class PageHeader extends StatelessWidget {
               children: [
                 Text(title,
                     style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.5,
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -1.0,
+                        height: 1.1,
                         color: mf.text)),
                 if (subtitle != null)
                   Padding(
@@ -267,12 +284,24 @@ class EmptyState extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 64,
-                height: 64,
+                width: 76,
+                height: 76,
                 decoration: BoxDecoration(
-                    color: mf.accentSoft,
-                    borderRadius: BorderRadius.circular(18)),
-                child: Icon(icon, color: mf.accent, size: 30),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      mf.accent.withValues(alpha: 0.28),
+                      mf.accent2.withValues(alpha: 0.14),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: mf.accent.withValues(alpha: 0.35)),
+                  boxShadow: [
+                    BoxShadow(color: mf.glow, blurRadius: 30, spreadRadius: -8),
+                  ],
+                ),
+                child: Icon(icon, color: mf.text, size: 32),
               ),
               const SizedBox(height: 20),
               Text(title,

@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 
 /// Werkzeuge der Schreibfläche.
-enum ToolMode { pen, highlighter, eraser, lasso, shape, laser }
+///
+/// Neue Werkzeuge immer hinten anfügen (gespeichert wird der Name).
+enum ToolMode { pen, highlighter, eraser, lasso, shape, laser, text }
 
 /// Stiftart.
 enum PenType {
@@ -98,6 +100,9 @@ class ToolSettings extends ChangeNotifier {
 
   ShapeKind shapeKind = ShapeKind.line;
 
+  /// Schriftgröße neuer Textfelder (in Seiten-Punkten).
+  double textSize = 18;
+
   List<int> paletteDark = List.of(kDefaultPaletteDark);
   List<int> paletteLight = List.of(kDefaultPaletteLight);
   List<int> highlighterPalette = List.of(kDefaultHighlighters);
@@ -138,6 +143,7 @@ class ToolSettings extends ChangeNotifier {
         'eraseHighlighterOnly': eraseHighlighterOnly,
         'eraserAutoReturn': eraserAutoReturn,
         'shapeKind': shapeKind.name,
+        'textSize': textSize,
         'paletteDark': paletteDark,
         'paletteLight': paletteLight,
         'highlighterPalette': highlighterPalette,
@@ -193,6 +199,7 @@ class ToolSettings extends ChangeNotifier {
     s.eraseHighlighterOnly = j['eraseHighlighterOnly'] == true;
     s.eraserAutoReturn = j['eraserAutoReturn'] == true;
     s.shapeKind = pick(ShapeKind.values, j['shapeKind']) ?? s.shapeKind;
+    s.textSize = (num_(j['textSize']) ?? s.textSize).clamp(8, 96).toDouble();
     s.paletteDark = ints(j['paletteDark'], min: 1) ?? s.paletteDark;
     s.paletteLight = ints(j['paletteLight'], min: 1) ?? s.paletteLight;
     s.highlighterPalette = ints(j['highlighterPalette'], min: 1) ?? s.highlighterPalette;

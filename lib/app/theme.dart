@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 /// Design-Tokens. Jede Farbe der Oberfläche kommt von hier, damit
 /// hell und dunkel vollständig funktionieren.
+///
+/// Stil: „Deep Space“ – fast schwarzes Blau, violett-cyanfarbene Verläufe,
+/// gläserne Flächen mit feinen hellen Kanten.
 @immutable
 class MfPalette extends ThemeExtension<MfPalette> {
   const MfPalette({
@@ -12,8 +15,14 @@ class MfPalette extends ThemeExtension<MfPalette> {
     required this.text,
     required this.textMuted,
     required this.accent,
+    required this.accent2,
     required this.accentSoft,
     required this.danger,
+    required this.success,
+    required this.glass,
+    required this.glassEdge,
+    required this.glow,
+    required this.isDark,
   });
 
   final Color background;
@@ -22,32 +31,77 @@ class MfPalette extends ThemeExtension<MfPalette> {
   final Color border;
   final Color text;
   final Color textMuted;
+
+  /// Hauptakzent (Violett).
   final Color accent;
+
+  /// Zweiter Akzent (Cyan) – für Verläufe und Highlights.
+  final Color accent2;
   final Color accentSoft;
   final Color danger;
+  final Color success;
+
+  /// Halbtransparente Glasfläche (Seitenleiste, Leisten, Karten).
+  final Color glass;
+
+  /// Feine helle Kante an Glasflächen.
+  final Color glassEdge;
+
+  /// Farbe des Leuchtens hinter Hauptknöpfen.
+  final Color glow;
+  final bool isDark;
+
+  /// Der Markenverlauf Violett → Cyan.
+  LinearGradient get gradient => LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [accent, accent2],
+      );
+
+  /// Dezenter Verlauf für Glasflächen.
+  LinearGradient get glassGradient => LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          glass,
+          Color.lerp(glass, background, 0.5)!,
+        ],
+      );
 
   static const dark = MfPalette(
-    background: Color(0xFF15151A),
-    surface: Color(0xFF1C1C22),
-    surfaceRaised: Color(0xFF25252D),
-    border: Color(0xFF2E2E38),
-    text: Color(0xFFEDEDF2),
-    textMuted: Color(0xFF9A9AA8),
-    accent: Color(0xFF8B7CF6),
-    accentSoft: Color(0x2E8B7CF6),
+    background: Color(0xFF0A0A0F),
+    surface: Color(0xFF13131B),
+    surfaceRaised: Color(0xFF1C1C27),
+    border: Color(0xFF262634),
+    text: Color(0xFFF2F2F7),
+    textMuted: Color(0xFF8E8EA3),
+    accent: Color(0xFF8B5CF6),
+    accent2: Color(0xFF22D3EE),
+    accentSoft: Color(0x338B5CF6),
     danger: Color(0xFFF87171),
+    success: Color(0xFF34D399),
+    glass: Color(0xB3161620),
+    glassEdge: Color(0x1FFFFFFF),
+    glow: Color(0x668B5CF6),
+    isDark: true,
   );
 
   static const light = MfPalette(
-    background: Color(0xFFF5F5F7),
+    background: Color(0xFFF4F5FA),
     surface: Color(0xFFFFFFFF),
-    surfaceRaised: Color(0xFFF0F0F4),
-    border: Color(0xFFE2E2E8),
-    text: Color(0xFF1C1C22),
-    textMuted: Color(0xFF6B6B78),
-    accent: Color(0xFF6D5DE7),
-    accentSoft: Color(0x226D5DE7),
+    surfaceRaised: Color(0xFFEEEFF6),
+    border: Color(0xFFE1E2EC),
+    text: Color(0xFF14141C),
+    textMuted: Color(0xFF6A6B7C),
+    accent: Color(0xFF7C3AED),
+    accent2: Color(0xFF0891B2),
+    accentSoft: Color(0x1F7C3AED),
     danger: Color(0xFFDC2626),
+    success: Color(0xFF059669),
+    glass: Color(0xCCFFFFFF),
+    glassEdge: Color(0x14000000),
+    glow: Color(0x407C3AED),
+    isDark: false,
   );
 
   @override
@@ -65,8 +119,14 @@ class MfPalette extends ThemeExtension<MfPalette> {
       text: l(text, other.text),
       textMuted: l(textMuted, other.textMuted),
       accent: l(accent, other.accent),
+      accent2: l(accent2, other.accent2),
       accentSoft: l(accentSoft, other.accentSoft),
       danger: l(danger, other.danger),
+      success: l(success, other.success),
+      glass: l(glass, other.glass),
+      glassEdge: l(glassEdge, other.glassEdge),
+      glow: l(glow, other.glow),
+      isDark: t < 0.5 ? isDark : other.isDark,
     );
   }
 }
@@ -82,31 +142,101 @@ ThemeData buildTheme(Brightness brightness) {
     brightness: brightness,
   ).copyWith(
     primary: p.accent,
+    onPrimary: Colors.white,
+    secondary: p.accent2,
     surface: p.surface,
     onSurface: p.text,
+    surfaceContainerLowest: p.background,
+    surfaceContainerLow: p.surface,
+    surfaceContainer: p.surface,
+    surfaceContainerHigh: p.isDark ? const Color(0xFF181822) : p.surface,
+    surfaceContainerHighest: p.surfaceRaised,
+    surfaceTint: Colors.transparent,
+    outline: p.border,
+    outlineVariant: p.border,
     error: p.danger,
   );
-  return ThemeData(
+  final radius14 = BorderRadius.circular(14);
+  OutlineInputBorder ob(Color c, [double w = 1]) => OutlineInputBorder(
+        borderRadius: radius14,
+        borderSide: BorderSide(color: c, width: w),
+      );
+  final base = ThemeData(
     useMaterial3: true,
     brightness: brightness,
     colorScheme: scheme,
+  );
+  return base.copyWith(
     scaffoldBackgroundColor: p.background,
+    canvasColor: p.background,
     dividerColor: p.border,
     extensions: [p],
+    textTheme: base.textTheme.apply(
+      bodyColor: p.text,
+      displayColor: p.text,
+    ),
+    iconTheme: IconThemeData(color: p.text),
+    dividerTheme: DividerThemeData(color: p.border, thickness: 1, space: 1),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: p.surfaceRaised,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: p.border),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: p.border),
+      hintStyle: TextStyle(color: p.textMuted),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: ob(p.border),
+      enabledBorder: ob(p.border),
+      focusedBorder: ob(p.accent, 1.6),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: p.accent,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: radius14),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
       ),
     ),
-    tooltipTheme:
-        const TooltipThemeData(waitDuration: Duration(milliseconds: 600)),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: p.text,
+        side: BorderSide(color: p.border),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: radius14),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: p.accent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: p.surfaceRaised,
+      selectedColor: p.accentSoft,
+      side: BorderSide(color: p.border),
+      labelStyle: TextStyle(color: p.text, fontSize: 13),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: p.isDark ? const Color(0xFF22222F) : const Color(0xFF1C1C27),
+      contentTextStyle: const TextStyle(color: Colors.white),
+      actionTextColor: p.accent2,
+      shape: RoundedRectangleBorder(borderRadius: radius14),
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(color: p.accent),
+    sliderTheme: SliderThemeData(
+      activeTrackColor: p.accent,
+      thumbColor: p.accent,
+      inactiveTrackColor: p.border,
+    ),
+    tooltipTheme: TooltipThemeData(
+      waitDuration: const Duration(milliseconds: 600),
+      decoration: BoxDecoration(
+        color: p.isDark ? const Color(0xFF26263A) : const Color(0xFF1C1C27),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      textStyle: const TextStyle(color: Colors.white, fontSize: 12),
+    ),
   );
 }
 
@@ -143,9 +273,9 @@ class PaperStyle {
   final List<Color> highlighter;
 
   static const dark = PaperStyle(
-    desk: Color(0xFF111115),
-    sheet: Color(0xFF1C1C22),
-    line: Color(0xFF30303B),
+    desk: Color(0xFF0B0B10),
+    sheet: Color(0xFF17171F),
+    line: Color(0xFF2C2C3A),
     ink: [
       Color(0xFFEDEDF2),
       Color(0xFF8B7CF6),
@@ -162,7 +292,7 @@ class PaperStyle {
   );
 
   static const light = PaperStyle(
-    desk: Color(0xFFE9E9ED),
+    desk: Color(0xFFE6E7EE),
     sheet: Color(0xFFFCFCFA),
     line: Color(0xFFDCDCE3),
     ink: [

@@ -7,7 +7,7 @@ enum Section {
   canvas('Canvas', Icons.bubble_chart_outlined, Icons.bubble_chart),
   documents('Dokumente', Icons.picture_as_pdf_outlined, Icons.picture_as_pdf),
   knowledge('Wissen', Icons.hub_outlined, Icons.hub),
-  study('Lernen', Icons.school_outlined, Icons.school, comingInPhase: 7),
+  study('Lernen', Icons.school_outlined, Icons.school),
   search('Suche', Icons.search, Icons.search),
   archive('Archiv', Icons.inventory_2_outlined, Icons.inventory_2);
 

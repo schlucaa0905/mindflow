@@ -11,6 +11,10 @@ import '../../ui/widgets.dart';
 import '../common/create_dialogs.dart';
 import '../common/object_info.dart';
 import '../common/object_picker.dart';
+import '../study/card_editor.dart';
+import '../study/review_screen.dart';
+import '../study/study_screen.dart';
+import '../../ui/futuristic.dart';
 
 /// Detailseite eines Wissenseintrags: Titel, Text, Tags, Unterthemen und
 /// alle Verknüpfungen (zu anderen Einträgen, Seiten, PDFs, Canvas).
@@ -152,6 +156,8 @@ class _KnowledgeEntryScreenState extends State<KnowledgeEntryScreen> {
             .where((o) => o.type == ObjectType.knowledge && !o.archived)
             .toList();
         final links = _s.objects.linkedObjects(entry.id);
+        final cards = _s.study.cardsOf(entry.id);
+        final due = cards.where((c) => c.schedule.isDue(DateTime.now())).length;
 
         return Scaffold(
           appBar: AppBar(
@@ -279,6 +285,61 @@ class _KnowledgeEntryScreenState extends State<KnowledgeEntryScreen> {
                         subtitle: c.body.split('\n').first,
                         onTap: () => openObject(context, c),
                       ),
+                  const SizedBox(height: 28),
+                  const SectionHeader('Karteikarten'),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: [
+                        TextButton.icon(
+                          onPressed: () async {
+                            _saveNow();
+                            final cur = _s.objects.get(entry.id);
+                            if (cur == null) return;
+                            final n = await generateCardsFromEntry(context, cur);
+                            if (n > 0 && context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                  content: Text(
+                                      '$n ${n == 1 ? 'Karte' : 'Karten'} erstellt')));
+                            }
+                          },
+                          icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                          label: const Text('Aus dem Text'),
+                        ),
+                        TextButton.icon(
+                          onPressed: () =>
+                              editFlashcard(context, entryId: entry.id),
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Karte hinzufügen'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (cards.isEmpty)
+                    Text(
+                        'Lerne dieses Thema mit Karteikarten. Tipp: Schreib im '
+                        'Text „Begriff: Erklärung“ pro Zeile und tippe auf '
+                        '„Aus dem Text“.',
+                        style: TextStyle(color: mf.textMuted, height: 1.4))
+                  else ...[
+                    if (due > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: GlowButton(
+                            label: '$due ${due == 1 ? 'Karte' : 'Karten'} lernen',
+                            icon: Icons.play_arrow_rounded,
+                            compact: true,
+                            onPressed: () =>
+                                startReview(context, entryId: entry.id),
+                          ),
+                        ),
+                      ),
+                    for (final c in cards) FlashcardTile(card: c),
+                  ],
                   const SizedBox(height: 28),
                   SectionHeader(
                     'Verknüpfungen',

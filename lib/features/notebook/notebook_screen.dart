@@ -8,6 +8,7 @@ import '../../data/models.dart';
 import '../../export/pdf_export.dart';
 import '../../ink/ink_controller.dart';
 import '../../ink/ink_surface.dart';
+import '../../ink/text_layer.dart';
 import '../../storage/ink_store.dart';
 import '../../ui/clean_menu.dart';
 import '../../ui/editor_bar.dart';
@@ -99,7 +100,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
           ? Map<String, dynamic>.of(base.data)
           : {'template': _notebook!.template.name},
     );
-    if (duplicate) await InkStore.duplicate(base.id, page.id);
+    if (duplicate) {
+      await InkStore.duplicate(base.id, page.id);
+      _s.texts.duplicateAll(base.id, page.id);
+    }
     if (!mounted) return;
     setState(() {
       _reload();
@@ -262,9 +266,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
       final pages = <ExportPage>[];
       for (final p in _pages) {
         final strokes = await InkStore(p.id).load();
+        final texts = _s.texts.items(p.id);
         pages.add(await renderPage(
           page: rect,
           strokes: strokes,
+          paintForeground: (canvas) => paintTextItems(canvas, texts),
           paintBackground: (canvas) => paintSheet(
               canvas, rect, paper, p.template,
               hairline: 0.6, shadow: false),

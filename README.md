@@ -2,7 +2,7 @@
 
 *Your thoughts. Connected.*
 
-Version 0.1 – Fundament, Notizbuch und Infinite Canvas.
+Version 0.7 – Neues Design, Textfelder und Lernen.
 
 ## Was drin ist
 
@@ -19,9 +19,32 @@ Version 0.1 – Fundament, Notizbuch und Infinite Canvas.
 - **Canvas:** Unendliche Fläche mit vier Modi: Schreiben, Auswählen, Verbinden, Navigieren. Textkarten anlegen (auch per Doppeltippen), verschieben, bearbeiten, löschen. Verbindungen ziehen; dieselben Karten nochmal verbinden löst die Verbindung. Alles wird dauerhaft gespeichert.
 - **Suche:** Titel von Notizbüchern und Canvas sowie der Text aller Karten. Ein Treffer springt direkt zur Karte.
 - **Archiv:** Archivierte Inhalte und Papierkorb, jeweils mit „Wiederherstellen“.
-- **Lernen:** Platzhalter mit Plan, kommt in Phase 7.
+- **Lernen:** Karteikarten mit Wiederholungsplan (wie Anki), Lernsets pro Wissenseintrag, Fortschritt auf Home.
 
 **Handschrift** (wie in Phase 0 getestet): Druck, Glättung, Textmarker, Radierer, Rückgängig, Handballen-Schutz, „Nur Stift“ schaltet sich automatisch ein, sobald ein Stift erkannt wird.
+
+## Neu in 0.7 – Neues Design, Textfelder, Lernen
+
+**Design „Deep Space“**
+- Fast schwarzes Blau mit violett-cyanfarbenen Verläufen und weichen Farbwolken im Hintergrund.
+- Seitenleiste als schwebende Glasfläche mit neuem Logo, leuchtendem „Neu erstellen“-Knopf und Verlaufs-Markierung.
+- Home neu: großer Begrüßungsbereich mit Kennzahlen, Schnellaktionen als Kacheln, Lernfortschritt als Ring.
+- Editor-Kopfleiste als schwebende „Insel“ mit Lichtkante; gewählte Werkzeuge leuchten.
+- Karten heben sich beim Berühren leicht an, Bereiche wechseln mit sanfter Überblendung.
+
+**Mit der Tastatur schreiben**
+- Neues Werkzeug „Text“ (T) in der Werkzeugleiste: aufs Blatt tippen → Textfeld → lostippen.
+- Farbe und Größe (S/M/L/XL) wie bei den Stiften; kleine Leiste am Feld: verschieben, kleiner/größer, fett, löschen, fertig. Breite am violetten Griff rechts ändern.
+- Textfelder gibt es in Notizbüchern, PDFs und auf dem Canvas. Sie landen im PDF-Export, in den Seiten-Vorschauen und in der globalen Suche.
+
+**Lasso: Kopieren & Einfügen wie Goodnotes**
+- Auswahl-Leiste jetzt mit Beschriftung: Kopieren, Ausschneiden, Duplizieren.
+- Einfügen: Mit dem Lasso lange auf eine Stelle drücken – auch auf einer anderen Seite oder in einem anderen Notizbuch. Oder „Einfügen“ in der Leiste.
+
+**Lernen**
+- Karteikarten in jedem Wissenseintrag; „Aus dem Text“ erzeugt Karten automatisch aus Zeilen wie `DHCP: vergibt IP-Adressen`.
+- Lernmodus mit Umdreh-Animation und Bewertung Nochmal / Schwer / Gut / Leicht (Tastatur: Leertaste, 1–4).
+- Wiederholungsplan nach dem Anki-Prinzip: Gewusstes kommt seltener, Vergessenes bald wieder.
 
 ## Neu in 0.6 – Feinschliff & Präsentieren
 
@@ -105,7 +128,7 @@ Version 0.1 – Fundament, Notizbuch und Infinite Canvas.
 
 ## Noch nicht drin (nächste Runden)
 
-Lasso, Formen, Textfelder und Bilder im Notizbuch · Karten mit Wissenseinträgen verknüpfen · Ordner · Cloud-Sync · Texterkennung für Handschrift-Suche.
+Bilder einfügen · Textfelder mit dem Lasso auswählen · Ordner · Cloud-Sync · Texterkennung für Handschrift-Suche · Goodnotes-Dateien direkt (nur nach Analyse einer Beispieldatei).
 
 ## Neue Version aufs iPad bringen
 
@@ -144,15 +167,21 @@ lib/
     models.dart             Objekt, Karte, Verbindung
     object_repository.dart  Notizbücher, Seiten, Canvas, Links, Papierkorb
     canvas_repository.dart  Karten und Verbindungen
+    text_repository.dart    Textfelder (Tastatur) pro Seite
+    study_repository.dart   Karteikarten, Lernsets, Statistik
+    srs.dart                Wiederholungsplan (Anki-Prinzip)
+    card_generator.dart     Karten aus „Begriff: Erklärung“-Zeilen
   ink/                      Handschrift-Engine (überall gleich)
     ink_surface.dart        Fertige Schreibfläche inkl. Laden/Speichern
     ink_toolbar.dart        Werkzeugleiste
     ink_session.dart        Automatisches, absturzsicheres Speichern
+    text_layer.dart         Textfelder über der Handschrift
     …                       Striche, Kamera, Rendering, Rückgängig
   features/                 Die Bereiche
-    home/  notebook/  canvas/  search/  archive/  common/
+    home/  notebook/  canvas/  documents/  knowledge/  study/  search/  archive/  common/
   storage/ink_store.dart    Handschrift-Dateien pro Objekt-ID
   ui/widgets.dart           Wiederverwendbare Bausteine
+  ui/futuristic.dart        Aurora-Hintergrund, Glas, Leuchtknöpfe, Fortschrittsring
 test/                       Automatische Tests (Daten, Handschrift, App-Start)
 ```
 
