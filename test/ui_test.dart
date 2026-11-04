@@ -302,7 +302,8 @@ void main() {
         text: TextSpan(text: t.text, style: textItemStyle(t)),
         strutStyle: textItemStrut(t),
         textDirection: TextDirection.ltr,
-      )..layout(maxWidth: t.w);
+      )..layout(); // ohne Umbruch: genau zwei Zeilen
+      expect(tp.computeLineMetrics().length, 2);
       expect(tp.height, closeTo(t.lineHeight! * 2, 0.01));
       tp.dispose();
 
