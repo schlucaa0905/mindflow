@@ -12,6 +12,7 @@ import '../common/create_dialogs.dart';
 import '../common/object_info.dart';
 import '../common/object_picker.dart';
 import '../study/card_editor.dart';
+import '../study/quiz_screen.dart';
 import '../study/review_screen.dart';
 import '../study/study_screen.dart';
 import '../../ui/futuristic.dart';
@@ -314,6 +315,13 @@ class _KnowledgeEntryScreenState extends State<KnowledgeEntryScreen> {
                           icon: const Icon(Icons.add, size: 18),
                           label: const Text('Karte hinzufügen'),
                         ),
+                        if (cards.length >= 4)
+                          TextButton.icon(
+                            onPressed: () =>
+                                startQuiz(context, entryId: entry.id),
+                            icon: const Icon(Icons.quiz_outlined, size: 18),
+                            label: const Text('Quiz'),
+                          ),
                       ],
                     ),
                   ),

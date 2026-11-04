@@ -11,6 +11,9 @@ final Expando<Path> _pathCache = Expando<Path>('strokePath');
 /// Zeichnet einen fertigen Strich.
 void paintStroke(Canvas canvas, Stroke s) {
   final path = _pathCache[s] ??= buildStrokePath(s.points, s.width, s.tool);
+  if (s.fill != null) {
+    canvas.drawPath(Path.from(path)..close(), Paint()..color = Color(s.fill!));
+  }
   canvas.drawPath(path, paintFor(s.tool, Color(s.color), s.width));
 }
 
@@ -38,6 +41,7 @@ Paint paintFor(InkTool tool, Color color, double width) {
         ..strokeJoin = StrokeJoin.round
         ..color = color.withValues(alpha: 0.35);
     case InkTool.ballpoint:
+    case InkTool.shape:
       // Gleichmäßige Breite, etwa wie ein Füller mit mittlerem Druck.
       p
         ..style = PaintingStyle.stroke
@@ -57,6 +61,7 @@ Path buildStrokePath(List<double> pts, double width, InkTool tool) {
       return _penOutline(pts, width, brush: true);
     case InkTool.highlighter:
     case InkTool.ballpoint:
+    case InkTool.shape:
       return _polyline(pts);
   }
 }

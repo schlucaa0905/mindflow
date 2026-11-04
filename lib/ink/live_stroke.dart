@@ -10,8 +10,9 @@ import 'stroke.dart';
 /// Er wird auf einer eigenen Ebene gezeichnet, damit beim Schreiben nur
 /// dieser eine Strich neu gemalt wird – nicht die ganze Seite.
 class LiveStroke extends ChangeNotifier {
-  /// Glättung: 1.0 = keine, kleiner = ruhiger, aber mehr Verzögerung.
-  static const double smoothing = 0.6;
+  /// Glättung beim Schreiben: 1.0 = keine, kleiner = ruhiger, aber mehr
+  /// Verzögerung (wird pro Strich aus den Einstellungen gesetzt).
+  double smoothing = 0.6;
 
   final List<double> points = [];
   bool active = false;

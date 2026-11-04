@@ -148,7 +148,7 @@ class InkToolbar extends StatelessWidget {
     final showColors = c.tool == ToolMode.pen ||
         hl ||
         c.tool == ToolMode.shape ||
-        c.selection.isNotEmpty;
+        c.hasSelection;
     if (!showColors) return const [];
     final palette = hl ? c.highlighterPalette : c.palette;
     final active = hl ? c.highlighterColor : c.penColor;
@@ -164,7 +164,7 @@ class InkToolbar extends StatelessWidget {
       for (var i = 0; i < palette.length; i++)
         ColorDot(
           color: palette[i],
-          selected: c.selection.isEmpty &&
+          selected: !c.hasSelection &&
               palette[i].toARGB32() == active.toARGB32(),
           onTap: () => c.setColor(palette[i]),
           onLongPress: () async {
@@ -178,7 +178,7 @@ class InkToolbar extends StatelessWidget {
         for (final color in c.customColors)
           ColorDot(
             color: color,
-            selected: c.selection.isEmpty &&
+            selected: !c.hasSelection &&
                 color.toARGB32() == active.toARGB32(),
             onTap: () => c.setColor(color),
           ),
@@ -321,13 +321,29 @@ class PresetButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final mf = context.mf;
     final active = controller.isActivePreset(preset);
+    final name = preset.highlighter ? 'Textmarker' : preset.type.label;
+    void remove() {
+      final c = controller;
+      final index = c.settings.presets.indexOf(preset);
+      c.removePreset(preset);
+      final m = ScaffoldMessenger.maybeOf(context);
+      m?.hideCurrentSnackBar();
+      m?.showSnackBar(SnackBar(
+        duration: const Duration(seconds: 4),
+        content: Text('Favorit „$name“ entfernt'),
+        action: SnackBarAction(
+            label: 'Rückgängig',
+            onPressed: () => c.restorePreset(preset, index)),
+      ));
+    }
+
     return Tooltip(
       message:
-          '${preset.type.label}, ${preset.width.toStringAsFixed(1)} – lange drücken: entfernen',
+          '$name, ${preset.width.toStringAsFixed(1)} – lange drücken: entfernen',
       child: GestureDetector(
         onTap: () => controller.applyPreset(preset),
-        onLongPress: () => controller.removePreset(preset),
-        onSecondaryTap: () => controller.removePreset(preset),
+        onLongPress: remove,
+        onSecondaryTap: remove,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           width: 36,
@@ -339,7 +355,12 @@ class PresetButton extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(penIcon(preset.type), size: 16, color: Color(preset.color)),
+              Icon(
+                  preset.highlighter
+                      ? Icons.border_color_outlined
+                      : penIcon(preset.type),
+                  size: 16,
+                  color: Color(preset.color)),
               const SizedBox(height: 3),
               Container(
                 width: 18,
@@ -554,14 +575,34 @@ class PenOptions extends StatelessWidget {
                 c.settings.update(() => c.settings.shapeRecognition = v),
           ),
           const SizedBox(height: 10),
+          _OptionsTitle('Glättung: ${_smoothLabel(c.settings.smoothing)}'),
+          Slider(
+            value: c.settings.smoothing,
+            divisions: 20,
+            onChanged: (v) =>
+                c.settings.update(() => c.settings.smoothing = v),
+          ),
+          const _Hint('Links: genau wie geschrieben. Mitte: Standard. '
+              'Rechts: ruhige, glatte Linien – ideal bei zittriger Schrift.'),
+          const SizedBox(height: 10),
+          _OptionsTitle('Druckempfindlichkeit: '
+              '${c.settings.pressure < 0.35 ? 'gering' : c.settings.pressure > 0.65 ? 'hoch' : 'Standard'}'),
+          Slider(
+            value: c.settings.pressure,
+            divisions: 20,
+            onChanged: (v) => c.settings.update(() => c.settings.pressure = v),
+          ),
+          const _Hint('Wie stark der Füller und Pinsel auf festes Drücken '
+              'reagieren. Rechts: schon leichter Druck macht dicke Striche.'),
+          const SizedBox(height: 10),
           const _OptionsTitle('Lieblingsstifte'),
           OutlinedButton.icon(
             onPressed: c.saveCurrentAsPreset,
             icon: const Icon(Icons.star_outline, size: 18),
             label: const Text('Aktuellen Stift speichern'),
           ),
-          const _Hint('Gespeicherte Stifte erscheinen in der Leiste. '
-              'Lange drücken entfernt sie.'),
+          const _Hint('Favoriten stehen neben den Stiften in der Leiste '
+              '(auch der Stern dort speichert). Lange drücken entfernt sie.'),
         ],
       ),
     );
@@ -588,8 +629,14 @@ class HighlighterOptions extends StatelessWidget {
                 c.settings.update(() => c.settings.highlighterStraight = v),
           ),
           const _Hint('Tipp: Am Ende des Strichs kurz halten – dann wird die '
-              'Linie gerade und lässt sich noch ausrichten. Textmarker liegt '
-              'immer hinter der Schrift.'),
+              'Linie gerade und lässt sich noch ausrichten (rastet nah an '
+              '0°, 45°, 90° … ein). Textmarker liegt immer hinter der Schrift.'),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: c.saveCurrentAsPreset,
+            icon: const Icon(Icons.star_outline, size: 18),
+            label: const Text('Als Favorit speichern'),
+          ),
         ],
       ),
     );
@@ -655,24 +702,47 @@ class ShapeOptions extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const _OptionsTitle('Form'),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final k in ShapeKind.values)
-                ChoiceChip(
-                  avatar: Icon(shapeIcon(k), size: 18),
-                  label: Text(k.label),
-                  selected: c.shapeKind == k,
-                  onSelected: (_) => c.setShapeKind(k),
-                ),
+          const _OptionsTitle('Formen'),
+          const _Hint('Zeichne eine Form frei Hand – beim Abheben wird sie '
+              'perfekt (Linie, Kreis, Ellipse, Rechteck, Dreieck, Vieleck). '
+              'Antippen einer Form: Griffe zum Ändern; ziehen verschiebt sie. '
+              'Entf löscht sie.'),
+          const SizedBox(height: 12),
+          const _OptionsTitle('Linien einrasten'),
+          SegmentedButton<AngleSnap>(
+            showSelectedIcon: false,
+            segments: [
+              for (final m in AngleSnap.values)
+                ButtonSegment(value: m, label: Text(m.label)),
             ],
+            selected: {c.settings.angleSnap},
+            onSelectionChanged: (v) =>
+                c.settings.update(() => c.settings.angleSnap = v.first),
           ),
-          const _Hint('Ziehen, um die Form aufzuspannen. Tipp: Mit dem Stift '
-              'eine Form zeichnen und kurz halten geht auch.'),
+          const _Hint('Rastet nur ganz nah dran ein (±2°): 40° bleibt 40°. '
+              'Genaue Winkel wie 44° oder 89°: Linie antippen und ± drücken '
+              'oder auf die Gradzahl tippen. Gilt auch fürs Drehen mit dem '
+              'Lasso.'),
+          if (c.editShape != null) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: c.deleteEditShape,
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text('Form löschen'),
+            ),
+          ],
         ],
       ),
     );
   }
 }
+
+String _smoothLabel(double v) => v < 0.15
+    ? 'aus'
+    : v < 0.4
+        ? 'leicht'
+        : v <= 0.6
+            ? 'Standard'
+            : v < 0.85
+                ? 'stark'
+                : 'sehr stark';

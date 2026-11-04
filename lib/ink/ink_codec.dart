@@ -8,7 +8,8 @@ import 'stroke.dart';
 /// Aufbau (Little Endian):
 ///   Kopf:   'MFNK' (u32) | Version (u16) | reserviert (u16) | Anzahl (u32)
 ///   Strich: ID-Länge (u16) | ID (UTF-8) | Farbe (u32) | Breite (f32)
-///           | Werkzeug (u8) | gelöscht (u8) | Anzahl Werte (u32)
+///           | Werkzeug (u8) | Flags (u8: Bit 0 gelöscht, Bit 1 Füllung)
+///           | [Füllfarbe (u32), nur mit Bit 1] | Anzahl Werte (u32)
 ///           | Werte (f32 × n, je x,y,druck)
 ///
 /// Gelöschte Striche bleiben als "Grabstein" erhalten – das braucht die
@@ -24,6 +25,7 @@ Uint8List encodeInk(List<Stroke> strokes) {
     if (id.length > 0xFFFF) throw ArgumentError('Strich-ID zu lang');
     ids.add(id);
     size += 2 + id.length + 4 + 4 + 1 + 1 + 4 + s.points.length * 4;
+    if (s.fill != null) size += 4;
   }
 
   final data = ByteData(size);
@@ -51,7 +53,11 @@ Uint8List encodeInk(List<Stroke> strokes) {
     data.setFloat32(o, s.width, le);
     o += 4;
     data.setUint8(o++, s.tool.index);
-    data.setUint8(o++, s.deleted ? 1 : 0);
+    data.setUint8(o++, (s.deleted ? 1 : 0) | (s.fill != null ? 2 : 0));
+    if (s.fill != null) {
+      data.setUint32(o, s.fill!, le);
+      o += 4;
+    }
     data.setUint32(o, s.points.length, le);
     o += 4;
     for (final v in s.points) {
@@ -98,7 +104,13 @@ List<Stroke> _decode(Uint8List bytes) {
     final width = data.getFloat32(o, le);
     o += 4;
     final toolIndex = data.getUint8(o++);
-    final deleted = data.getUint8(o++) == 1;
+    final flags = data.getUint8(o++);
+    final deleted = flags & 1 == 1;
+    int? fill;
+    if (flags & 2 == 2) {
+      fill = data.getUint32(o, le);
+      o += 4;
+    }
     final n = data.getUint32(o, le);
     o += 4;
     if (n % 3 != 0 || toolIndex >= InkTool.values.length) {
@@ -116,6 +128,7 @@ List<Stroke> _decode(Uint8List bytes) {
       tool: InkTool.values[toolIndex],
       points: pts,
       deleted: deleted,
+      fill: fill,
     ));
   }
   return result;

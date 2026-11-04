@@ -6,6 +6,7 @@ import '../../app/theme.dart';
 import '../../data/models.dart';
 import '../../ui/widgets.dart';
 import '../common/create_dialogs.dart';
+import 'knowledge_graph.dart';
 
 /// KNOWLEDGE – das zentrale Wissensarchiv als Baum
 /// (z. B. Informatik → Netzwerktechnik → DHCP).
@@ -93,7 +94,19 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
               subtitle: all.isEmpty
                   ? 'Themen, Unterthemen und ihre Verbindungen'
                   : '${all.length} ${all.length == 1 ? 'Eintrag' : 'Einträge'}',
-              actions: [if (all.isNotEmpty) newButton],
+              actions: [
+                if (all.isNotEmpty) ...[
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                            builder: (_) => const KnowledgeGraphScreen())),
+                    icon: const Icon(Icons.hub_rounded, size: 18),
+                    label: const Text('Netz'),
+                  ),
+                  const SizedBox(width: 8),
+                  newButton,
+                ],
+              ],
             ),
             if (all.isEmpty)
               Padding(

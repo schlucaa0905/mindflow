@@ -73,6 +73,7 @@ class InkStore {
             width: s.width,
             tool: s.tool,
             points: Float32List.fromList(s.points),
+            fill: s.fill,
           ),
     ];
     if (copies.isEmpty) return;

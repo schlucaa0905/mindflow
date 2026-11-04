@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -9,11 +11,19 @@ import '../../export/pdf_export.dart';
 import '../../ink/ink_controller.dart';
 import '../../ink/ink_surface.dart';
 import '../../ink/text_layer.dart';
+import '../../ink/tool_row.dart';
+import '../../storage/element_library.dart';
+import '../../storage/image_store.dart';
 import '../../storage/ink_store.dart';
 import '../../ui/clean_menu.dart';
 import '../../ui/editor_bar.dart';
+import '../../ui/find_dialog.dart';
 import '../../ui/widgets.dart';
 import '../common/create_dialogs.dart';
+import '../common/links.dart';
+import '../common/object_picker.dart';
+import '../documents/pdf_service.dart';
+import 'page_design_dialog.dart';
 import 'page_overview.dart';
 import 'page_painter.dart';
 
@@ -50,8 +60,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
     _s = Services.of(context);
     _s.objects.markOpened(widget.notebookId);
     _reload();
-    if (widget.initialPageId != null) {
-      final i = _pages.indexWhere((p) => p.id == widget.initialPageId);
+    final start = widget.initialPageId ?? _s.lastPage[widget.notebookId];
+    if (start != null) {
+      final i = _pages.indexWhere((p) => p.id == start);
       if (i >= 0) _index = i;
     }
   }
@@ -63,7 +74,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       _s.objects.create(
         type: ObjectType.page,
         parentId: widget.notebookId,
-        data: {'template': _notebook!.template.name},
+        data: _newPageData(),
       );
       _pages = _s.objects.children(widget.notebookId);
     }
@@ -75,6 +86,211 @@ class _NotebookScreenState extends State<NotebookScreen> {
   }
 
   MfObject get _page => _pages[_index];
+
+  /// Daten einer neuen Seite: Vorlage, Abstand und Blattfarbe des Notizbuchs.
+  Map<String, dynamic> _newPageData() {
+    final d = _notebook!.data;
+    return {
+      'template': _notebook!.template.name,
+      if (d['gap'] is num) 'gap': d['gap'],
+      if (d['paperColor'] is int) 'paperColor': d['paperColor'],
+      if (d['bgImage'] is String) 'bgImage': d['bgImage'],
+    };
+  }
+
+  /// Seite benennen (für Inhaltsverzeichnis und Links).
+  Future<void> _namePage(MfObject p) async {
+    final v = await askText(context,
+        title: 'Seite benennen',
+        initial: p.title,
+        hint: 'z. B. Kapitel 2 – DHCP',
+        confirm: 'Speichern');
+    if (v == null || !mounted) return;
+    _s.objects.rename(p.id, v.trim());
+    setState(_reload);
+  }
+
+  /// Inhaltsverzeichnis: benannte Seiten und Lesezeichen.
+  Future<void> _showContents() async {
+    final entries = [
+      for (var i = 0; i < _pages.length; i++)
+        if (_pages[i].title.trim().isNotEmpty || _isBookmarked(_pages[i])) i
+    ];
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Inhaltsverzeichnis'),
+        children: [
+          if (entries.isEmpty)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 8, 24, 16),
+              child: Text('Noch leer. Benenne Seiten über ihr Menü '
+                  '(„Seite benennen“) oder setze Lesezeichen.'),
+            ),
+          for (final i in entries)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, i),
+              child: Row(children: [
+                SizedBox(
+                    width: 44,
+                    child: Text('S. ${i + 1}',
+                        style: const TextStyle(fontWeight: FontWeight.w600))),
+                Expanded(
+                    child: Text(_pages[i].title.trim().isEmpty
+                        ? 'Lesezeichen'
+                        : _pages[i].title.trim())),
+                if (_isBookmarked(_pages[i]))
+                  const Icon(Icons.bookmark_rounded, size: 18),
+              ]),
+            ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, -1),
+            child: const Row(children: [
+              Icon(Icons.edit_outlined, size: 18),
+              SizedBox(width: 10),
+              Text('Diese Seite benennen …'),
+            ]),
+          ),
+        ],
+      ),
+    );
+    if (picked == null || !mounted) return;
+    if (picked < 0) {
+      await _namePage(_page);
+    } else {
+      await _goTo(picked);
+    }
+  }
+
+  /// Seite (mit Handschrift, Text und Bildern) als eigene Vorlage sichern.
+  Future<void> _saveAsTemplate(MfObject p) async {
+    final name = await askText(context,
+        title: 'Als Vorlage speichern',
+        initial: p.title,
+        hint: 'z. B. Wochenplan blau',
+        confirm: 'Speichern');
+    if (name == null || !mounted) return;
+    await _flush();
+    final nb = _notebook!;
+    final rect = pageRectFor(nb.format);
+    final ps = pageStyle(PaperStyle.of(nb.paper), p);
+    final texts = _s.texts.items(p.id);
+    final bg = p.data['bgImage'] as String?;
+    await ImageStore.preload([
+      for (final t in texts)
+        if (t.file != null && t.isImage) t.file!,
+      if (bg != null) bg,
+    ]);
+    final img = await renderPage(
+      page: rect,
+      strokes: await InkStore(p.id).load(),
+      paintForeground: (canvas) => paintTextItems(canvas, texts),
+      paintBackground: (canvas) {
+        paintSheet(canvas, rect, ps, p.template,
+            hairline: 0.6, shadow: false, image: bg);
+        paintPageImages(canvas, texts);
+      },
+    );
+    final file = await ImageStore.save(img.png, 'png');
+    saveCustomTemplates(_s.objects, [
+      ...loadCustomTemplates(_s.objects),
+      (name: name.trim().isEmpty ? 'Eigene Vorlage' : name.trim(), file: file),
+    ]);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Gespeichert – zu finden unter „Seite gestalten“.')));
+  }
+
+  /// Schreibfläche: dunkles oder helles Papier (für die Stiftfarben).
+  static Paper _inkPaper(PaperStyle style, Paper notebook) =>
+      isDarkSheet(style.sheet)
+          ? Paper.dark
+          : notebook == Paper.dark
+              ? Paper.light
+              : notebook;
+
+  /// „Seite gestalten“: Vorlage, Abstand, Blattfarbe – für diese, alle
+  /// und auf Wunsch auch neue Seiten.
+  Future<void> _designPage(MfObject page) async {
+    final nb = _notebook!;
+    final base = PaperStyle.of(nb.paper);
+    final d = await showPageDesign(context,
+        page: page, notebookPaper: base, format: nb.format, repo: _s.objects);
+    if (d == null || !mounted) return;
+    await _flush();
+    final switched = <String>[];
+    var toDark = false;
+    for (final p in d.allPages ? _pages : [page]) {
+      final wasDark = isDarkSheet(pageStyle(base, p).sheet);
+      final data = {...p.data, 'template': d.template.name, 'gap': d.gap};
+      if (d.bgImage == null) {
+        data.remove('bgImage');
+      } else {
+        data['bgImage'] = d.bgImage;
+      }
+      if (d.color == null) {
+        data.remove('paperColor');
+      } else {
+        data['paperColor'] = d.color;
+      }
+      _s.objects.setData(p.id, data);
+      toDark = isDarkSheet(d.color == null ? base.sheet : Color(d.color!));
+      if (wasDark != toDark) switched.add(p.id);
+    }
+    if (d.forNewPages) {
+      final data = {...nb.data, 'template': d.template.name, 'gap': d.gap};
+      if (d.color == null) {
+        data.remove('paperColor');
+      } else {
+        data['paperColor'] = d.color;
+      }
+      if (d.bgImage == null) {
+        data.remove('bgImage');
+      } else {
+        data['bgImage'] = d.bgImage;
+      }
+      _s.objects.setData(nb.id, data);
+    }
+    // Hell ↔ dunkel: Schriftfarben anbieten anzupassen.
+    if (switched.isNotEmpty && mounted) {
+      await offerRecolor(context, switched, toDark: toDark);
+    }
+    if (!mounted) return;
+    setState(() {
+      _reload();
+      _enterFrom = 0;
+      _surfaceKey = GlobalKey();
+    });
+  }
+
+  /// Seitenzahl für Seite [i] (null, wenn ausgeschaltet).
+  String? _pageLabel(int i) =>
+      PageNumbers.of(_notebook!).textFor(i, _pages.length);
+
+  Future<void> _choosePageNumbers() async {
+    final nb = _notebook!;
+    final now = PageNumbers.of(nb);
+    final picked = await showDialog<PageNumbers>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Seitenzahlen'),
+        children: [
+          for (final m in PageNumbers.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, m),
+              child: Row(children: [
+                Icon(m == now ? Icons.check_rounded : null, size: 20),
+                const SizedBox(width: 10),
+                Text(m.label),
+              ]),
+            ),
+        ],
+      ),
+    );
+    if (picked == null || picked == now || !mounted) return;
+    _s.objects.setData(nb.id, {...nb.data, 'pageNumbers': picked.index});
+    setState(_reload);
+  }
 
   Future<void> _flush() async => _surfaceKey.currentState?.flush();
 
@@ -98,7 +314,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       position: _s.objects.positionAfter(base),
       data: duplicate
           ? Map<String, dynamic>.of(base.data)
-          : {'template': _notebook!.template.name},
+          : _newPageData(),
     );
     if (duplicate) {
       await InkStore.duplicate(base.id, page.id);
@@ -149,29 +365,27 @@ class _NotebookScreenState extends State<NotebookScreen> {
     });
   }
 
-  Future<void> _chooseTemplate(MfObject page) async {
-    final t = await showDialog<PageTemplate>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Vorlage dieser Seite'),
-        children: [
-          for (final t in PageTemplate.values)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, t),
-              child: Row(children: [
-                SizedBox(
-                    width: 28,
-                    child: page.template == t
-                        ? const Icon(Icons.check, size: 18)
-                        : null),
-                Text(t.label),
-              ]),
-            ),
-        ],
-      ),
-    );
-    if (t == null) return;
-    _s.objects.setData(page.id, {...page.data, 'template': t.name});
+  /// Eine Seite aus einem importierten PDF als Hintergrund dieser Seite.
+  Future<void> _pdfAsTemplate() async {
+    final doc = await pickObject(context,
+        title: 'Welches Dokument?', types: {ObjectType.document});
+    if (doc == null || !mounted) return;
+    final count = doc.pageSizes.length;
+    var index = 0;
+    if (count > 1) {
+      final v = await askText(context,
+          title: 'Welche Seite?', hint: '1 – $count', confirm: 'Übernehmen');
+      final n = int.tryParse(v?.trim() ?? '');
+      if (n == null) return;
+      index = (n - 1).clamp(0, count - 1).toInt();
+    }
+    final img = await PdfService.renderPage(doc, index, dpi: 150);
+    final png = await img?.toByteData(format: ui.ImageByteFormat.png);
+    if (png == null || !mounted) return;
+    final name = await ImageStore.save(png.buffer.asUint8List(), 'png');
+    final p = _s.objects.get(_page.id);
+    if (p == null || !mounted) return;
+    _s.objects.setData(p.id, {...p.data, 'bgImage': name});
     setState(_reload);
   }
 
@@ -204,8 +418,10 @@ class _NotebookScreenState extends State<NotebookScreen> {
           PageThumbnail(
             inkId: _pages[i].id,
             page: rect,
-            paper: paper,
+            paper: pageStyle(paper, _pages[i]),
             template: _pages[i].template,
+            image: _pages[i].data['bgImage'] as String?,
+            pageLabel: _pageLabel(i),
           ),
           if (_isBookmarked(_pages[i]))
             Positioned(
@@ -217,37 +433,78 @@ class _NotebookScreenState extends State<NotebookScreen> {
         ],
       ),
       onAdd: () => _addPage(after: _pages.length - 1),
-      menuItems: (i) => [
+      menuItems: _pageMenu,
+      onMenu: _onPageMenu,
+    );
+    if (picked != null) await _goTo(picked);
+  }
+
+  List<CleanMenuEntry> _pageMenu(int i) => [
         if (i > 0)
           const CleanMenuEntry('up', 'Nach vorne', icon: Icons.arrow_back),
         if (i < _pages.length - 1)
           const CleanMenuEntry('down', 'Nach hinten',
               icon: Icons.arrow_forward),
         const CleanMenuEntry('dup', 'Duplizieren', icon: Icons.copy_all_outlined),
-        const CleanMenuEntry('tpl', 'Vorlage ändern',
-            icon: Icons.view_day_outlined),
+        const CleanMenuEntry('tpl', 'Seite gestalten …',
+            icon: Icons.palette_outlined,
+            subtitle: 'Vorlage, Abstand, Farbe'),
+        const CleanMenuEntry('name', 'Seite benennen …',
+            icon: Icons.label_outline_rounded),
+        const CleanMenuEntry('savetpl', 'Als Vorlage speichern …',
+            icon: Icons.save_as_outlined),
         const CleanMenuEntry.divider(),
         const CleanMenuEntry('del', 'Löschen',
             icon: Icons.delete_outline, destructive: true),
-      ],
-      onMenu: (i, action) async {
-        final p = _pages[i];
-        switch (action) {
-          case 'up':
-            _move(p, -1);
-          case 'down':
-            _move(p, 1);
-          case 'dup':
-            await _addPage(duplicate: true, after: i);
-          case 'tpl':
-            await _chooseTemplate(p);
-          case 'del':
-            _deletePage(p);
-        }
-      },
-    );
-    if (picked != null) await _goTo(picked);
+      ];
+
+  Future<void> _onPageMenu(int i, String action) async {
+    final p = _pages[i];
+    switch (action) {
+      case 'up':
+        _move(p, -1);
+      case 'down':
+        _move(p, 1);
+      case 'dup':
+        await _addPage(duplicate: true, after: i);
+      case 'tpl':
+        await _designPage(p);
+      case 'name':
+        await _namePage(p);
+      case 'savetpl':
+        await _saveAsTemplate(p);
+      case 'del':
+        _deletePage(p);
+    }
   }
+
+  /// Seitenleiste: Seite per Ziehen an eine neue Stelle setzen.
+  void _reorder(int from, int to) {
+    if (to > from) to--;
+    if (to == from) return;
+    final list = [..._pages];
+    final p = list.removeAt(from);
+    list.insert(to, p);
+    final before = to > 0 ? list[to - 1].position : null;
+    final after = to < list.length - 1 ? list[to + 1].position : null;
+    final pos = before == null
+        ? after! - 1
+        : after == null
+            ? before + 1
+            : (before + after) / 2;
+    _s.objects.setPosition(p.id, pos);
+    final cur = _page.id;
+    setState(() {
+      _reload();
+      _index = _pages.indexWhere((x) => x.id == cur);
+    });
+  }
+
+  /// Seitenleiste links ein-/ausgeblendet (bleibt für die Sitzung).
+  static bool _sidebar = false;
+
+  /// Lesemodus an?
+  bool _reading = false;
 
   /// Aus der aktuellen Seite einen Wissenseintrag machen (mit Verknüpfung).
   Future<void> _createKnowledgeFromPage() async {
@@ -275,16 +532,29 @@ class _NotebookScreenState extends State<NotebookScreen> {
     messenger.showSnackBar(const SnackBar(content: Text('PDF wird erstellt …')));
     try {
       final pages = <ExportPage>[];
-      for (final p in _pages) {
+      final numbers = PageNumbers.of(nb);
+      for (var i = 0; i < _pages.length; i++) {
+        final p = _pages[i];
+        final label = numbers.textFor(i, _pages.length);
         final strokes = await InkStore(p.id).load();
         final texts = _s.texts.items(p.id);
+        final bg = p.data['bgImage'] as String?;
+        await ImageStore.preload([
+          for (final t in texts)
+            if (t.file != null) t.file!,
+          if (bg != null) bg,
+        ]);
         pages.add(await renderPage(
           page: rect,
           strokes: strokes,
           paintForeground: (canvas) => paintTextItems(canvas, texts),
-          paintBackground: (canvas) => paintSheet(
-              canvas, rect, paper, p.template,
-              hairline: 0.6, shadow: false),
+          paintBackground: (canvas) {
+            final ps = pageStyle(paper, p);
+            paintSheet(canvas, rect, ps, p.template,
+                hairline: 0.6, shadow: false, image: bg);
+            paintPageLabel(canvas, rect, ps, label);
+            paintPageImages(canvas, texts);
+          },
         ));
       }
       await sharePdf(nb.displayTitle, pages);
@@ -340,7 +610,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
       type: ObjectType.page,
       parentId: widget.notebookId,
       position: position,
-      data: {'template': _notebook!.template.name},
+      data: _newPageData(),
     );
     if (!mounted) return;
     setState(() {
@@ -357,93 +627,157 @@ class _NotebookScreenState extends State<NotebookScreen> {
     final anyBookmark = _pages.any(_isBookmarked);
     return EditorNavBar(
       icon: Icons.menu_book_rounded,
+      tabId: nb.id,
       title: nb.displayTitle,
       subtitle: nb.category.isEmpty ? null : nb.category,
       onTitleTap: _editNotebook,
-      center: PagePager(
-        index: _index,
-        count: _pages.length,
-        onPrev: () => _goTo(_index - 1),
-        onNext: () => _goTo(_index + 1),
-        onTap: _showOverview,
-      ),
+      leading: [
+        NavIconButton(
+          icon: Icons.view_sidebar_outlined,
+          tooltip: 'Seitenleiste',
+          active: _sidebar,
+          onTap: () => setState(() => _sidebar = !_sidebar),
+        ),
+        ListenableBuilder(
+          listenable: c,
+          builder: (context, _) => NavIconButton(
+            icon: c.drawingEnabled
+                ? Icons.visibility_outlined
+                : Icons.visibility_rounded,
+            tooltip: c.drawingEnabled
+                ? 'Lesemodus (nichts aus Versehen malen)'
+                : 'Lesemodus beenden',
+            active: !c.drawingEnabled,
+            onTap: () => c.setDrawingEnabled(!c.drawingEnabled),
+          ),
+        ),
+        NavIconButton(
+          icon: Icons.search_rounded,
+          tooltip: 'Im Notizbuch suchen',
+          onTap: () async {
+            await _flush();
+            if (!context.mounted) return;
+            await showFindDialog(context, (q) => [
+                  for (var i = 0; i < _pages.length; i++)
+                    for (final t in _s.texts.items(_pages[i].id))
+                      if (!t.isImage &&
+                          t.text.toLowerCase().contains(q.toLowerCase()))
+                        (
+                          title: 'Seite ${i + 1}',
+                          snippet: snippetOf(t.text, q),
+                          open: () => _goTo(i),
+                        ),
+                ]);
+          },
+        ),
+        NavIconButton(
+          icon: bookmarked
+              ? Icons.bookmark_rounded
+              : Icons.bookmark_border_rounded,
+          tooltip: bookmarked ? 'Lesezeichen entfernen' : 'Lesezeichen setzen',
+          active: bookmarked,
+          onTap: _toggleBookmark,
+        ),
+      ],
+      center: ToolModeButtons(controller: c),
       actions: [
-        NavGroup(children: [
-          NavIconButton(
-            icon: Icons.grid_view_rounded,
-            tooltip: 'Seitenübersicht',
-            onTap: _showOverview,
-          ),
-          NavIconButton(
-            icon: bookmarked
-                ? Icons.bookmark_rounded
-                : Icons.bookmark_border_rounded,
-            tooltip: bookmarked ? 'Lesezeichen entfernen' : 'Lesezeichen setzen',
-            active: bookmarked,
-            onTap: _toggleBookmark,
-          ),
-        ]),
-        NavGroup(children: [UndoRedoButtons(controller: c)]),
-        NavGroup(children: [
-          ZoomPill(
-            camera: c.camera,
-            onFit: () => _surfaceKey.currentState?.fitPage(),
-            onFitWidth: () => _surfaceKey.currentState?.fitWidth(),
-          ),
-        ]),
-        NavGroup(children: [
-          CleanMenuButton(
-            tooltip: 'Einfügen',
-            icon: Icons.add_circle_outline_rounded,
-            entries: const [
-              CleanMenuEntry('after', 'Neue Seite danach',
-                  icon: Icons.note_add_outlined),
-              CleanMenuEntry('before', 'Neue Seite davor',
-                  icon: Icons.post_add_rounded),
-              CleanMenuEntry('dup', 'Seite duplizieren',
-                  icon: Icons.copy_all_outlined),
-              CleanMenuEntry.divider(),
-              CleanMenuEntry('text', 'Textfeld (Tastatur)',
-                  icon: Icons.title_rounded,
-                  subtitle: 'Dann aufs Blatt tippen'),
-              CleanMenuEntry('tpl', 'Vorlage dieser Seite',
-                  icon: Icons.view_day_outlined),
-            ],
-            onSelected: (v) async {
-              switch (v) {
-                case 'after':
-                  await _addPage();
-                case 'before':
-                  await _addPageBefore();
-                case 'dup':
-                  await _addPage(duplicate: true);
-                case 'text':
-                  c.setTool(ToolMode.text);
-                case 'tpl':
-                  await _chooseTemplate(_page);
-              }
-            },
-          ),
-          StylusToggle(controller: c),
-          NavIconButton(
-            icon: Icons.co_present_outlined,
-            tooltip: 'Präsentieren (nur das Blatt zeigen)',
-            onTap: () => setState(() => _presenting = true),
-          ),
-        ]),
+        PagePager(
+          index: _index,
+          count: _pages.length,
+          onPrev: () => _goTo(_index - 1),
+          onNext: () => _goTo(_index + 1),
+          onTap: _showOverview,
+        ),
+        ZoomPill(
+          camera: c.camera,
+          onFit: () => _surfaceKey.currentState?.fitPage(),
+          onFitWidth: () => _surfaceKey.currentState?.fitWidth(),
+        ),
+        StylusToggle(controller: c),
+        CleanMenuButton(
+          tooltip: 'Seite hinzufügen',
+          icon: Icons.note_add_outlined,
+          entries: const [
+            CleanMenuEntry('after', 'Neue Seite danach',
+                icon: Icons.note_add_outlined),
+            CleanMenuEntry('before', 'Neue Seite davor',
+                icon: Icons.post_add_rounded),
+            CleanMenuEntry('dup', 'Seite duplizieren',
+                icon: Icons.copy_all_outlined),
+            CleanMenuEntry('tpl', 'Seite gestalten …',
+                icon: Icons.palette_outlined,
+                subtitle: 'Vorlage, Abstand, Farbe'),
+            CleanMenuEntry('pdfbg', 'PDF-Seite als Vorlage',
+                icon: Icons.picture_as_pdf_outlined,
+                subtitle: 'Aus deinen Dokumenten'),
+            CleanMenuEntry.divider(),
+            CleanMenuEntry('photo', 'Bild aus Fotos',
+                icon: Icons.photo_library_outlined),
+            CleanMenuEntry('file', 'Bild aus Dateien',
+                icon: Icons.image_outlined),
+            CleanMenuEntry('element', 'Element einfügen …',
+                icon: Icons.widgets_outlined,
+                subtitle: 'Aus deiner Bibliothek'),
+          ],
+          onSelected: (v) async {
+            switch (v) {
+              case 'element':
+                await showElementPicker(context, c);
+              case 'pdfbg':
+                await _pdfAsTemplate();
+              case 'photo':
+                await _surfaceKey.currentState?.insertImage();
+              case 'file':
+                await _surfaceKey.currentState?.insertImage(fromFiles: true);
+              case 'after':
+                await _addPage();
+              case 'before':
+                await _addPageBefore();
+              case 'dup':
+                await _addPage(duplicate: true);
+              case 'tpl':
+                await _designPage(_page);
+            }
+          },
+        ),
+        NavIconButton(
+          icon: Icons.ios_share_rounded,
+          tooltip: 'Als PDF teilen',
+          onTap: _export,
+        ),
+        NavIconButton(
+          icon: Icons.co_present_outlined,
+          tooltip: 'Präsentieren (nur das Blatt zeigen)',
+          onTap: () => setState(() => _presenting = true),
+        ),
         EditorMoreMenu(
           entries: [
-            const CleanMenuEntry('settings', 'Aussehen ändern',
+            const CleanMenuEntry('design', 'Seite gestalten …',
+                icon: Icons.format_paint_outlined,
+                subtitle: 'Vorlage, Abstand, Farbe dieser Seite'),
+            const CleanMenuEntry('settings', 'Notizbuch bearbeiten',
                 icon: Icons.palette_outlined,
-                subtitle: 'Umschlag, Papier, Format'),
+                subtitle: 'Umschlag, Papier, Format, Vorlage'),
             const CleanMenuEntry.divider(),
             const CleanMenuEntry('goto', 'Zu Seite springen …',
                 icon: Icons.low_priority_rounded),
             if (anyBookmark)
               const CleanMenuEntry('nextmark', 'Nächstes Lesezeichen',
                   icon: Icons.bookmarks_outlined),
+            const CleanMenuEntry('toc', 'Inhaltsverzeichnis',
+                icon: Icons.toc_rounded),
+            const CleanMenuEntry('name', 'Seite benennen …',
+                icon: Icons.label_outline_rounded),
+            const CleanMenuEntry('savetpl', 'Als Vorlage speichern …',
+                icon: Icons.save_as_outlined),
+            const CleanMenuEntry('split', 'Daneben öffnen …',
+                icon: Icons.vertical_split_outlined,
+                subtitle: 'Zwei Inhalte nebeneinander'),
             const CleanMenuEntry('knowledge', 'Wissenseintrag aus Seite',
                 icon: Icons.hub_outlined),
+            CleanMenuEntry('pagenum', 'Seitenzahlen …',
+                icon: Icons.format_list_numbered_rounded,
+                subtitle: PageNumbers.of(_notebook!).label),
             const CleanMenuEntry.divider(),
             const CleanMenuEntry('export', 'Als PDF teilen',
                 icon: Icons.ios_share_outlined),
@@ -465,6 +799,18 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 await _export();
               case 'settings':
                 await _editNotebook();
+              case 'pagenum':
+                await _choosePageNumbers();
+              case 'design':
+                await _designPage(_page);
+              case 'toc':
+                await _showContents();
+              case 'name':
+                await _namePage(_page);
+              case 'savetpl':
+                await _saveAsTemplate(_page);
+              case 'split':
+                await openSplitWith(context, _notebook!);
             }
           },
         ),
@@ -481,6 +827,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
     }
     final paper = PaperStyle.of(nb.paper);
     final page = _page;
+    final style = pageStyle(paper, page);
+    _s.lastPage[nb.id] = page.id;
     final pageRect = pageRectFor(nb.format);
 
     // Bild auf/ab bzw. Alt+Pfeil: blättern (Tastatur).
@@ -500,22 +848,59 @@ class _NotebookScreenState extends State<NotebookScreen> {
         body: InkSurface(
           key: _surfaceKey,
           inkId: page.id,
-          paper: nb.paper,
+          paper: _inkPaper(style, nb.paper),
+          linkNotebookId: nb.id,
+          onOpenLink: (t) => openLinkTarget(context, t, goToPage: (id) {
+            final i = _pages.indexWhere((p) => p.id == id);
+            if (i < 0) return false;
+            _goTo(i);
+            return true;
+          }),
           fitRect: pageRect,
           lockToFit: true,
           drawBounds: pageRect,
+          textGrid: textGridFor(page.template, style.gap),
           navBar: _nav,
           presenting: _presenting,
           onExitPresentation: () => setState(() => _presenting = false),
           presentationLabel: '${_index + 1} / ${_pages.length}',
           enterFrom: _enterFrom,
-          onSwipe: (d) => _goTo(_index + d),
+          // Nach der letzten Seite weiterwischen: neue Seite (wie Goodnotes).
+          onSwipe: (d) => d > 0 && _index == _pages.length - 1
+              ? _addPage()
+              : _goTo(_index + d),
+          // Lesemodus gilt fürs ganze Dokument, auch beim Blättern.
+          onControllerReady: (c) {
+            c.setDrawingEnabled(!_reading);
+            c.addListener(() => _reading = !c.drawingEnabled);
+          },
+          leftPanel: !_sidebar
+              ? null
+              : PageSidebar(
+                  count: _pages.length,
+                  current: _index,
+                  onSelect: _goTo,
+                  onReorder: _reorder,
+                  menuItems: _pageMenu,
+                  onMenu: _onPageMenu,
+                  thumbnail: (context, i) => PageThumbnail(
+                    key: ValueKey('${_pages[i].id}${_pageLabel(i)}'),
+                    inkId: _pages[i].id,
+                    page: pageRect,
+                    paper: pageStyle(paper, _pages[i]),
+                    template: _pages[i].template,
+                    image: _pages[i].data['bgImage'] as String?,
+                    pageLabel: _pageLabel(i),
+                  ),
+                ),
           onSaved: () => _s.objects.touch(nb.id),
           backgroundBuilder: (camera) => PagePainter(
             camera: camera,
-            paper: paper,
+            paper: style,
             template: page.template,
             page: pageRect,
+            image: page.data['bgImage'] as String?,
+            pageLabel: _pageLabel(_index),
           ),
         ),
       ),

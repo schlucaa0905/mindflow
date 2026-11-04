@@ -1,19 +1,24 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../app/navigation.dart';
 import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/models.dart';
+import '../../export/pdf_export.dart';
 import '../../ink/camera.dart';
 import '../../ink/ink_canvas_view.dart';
 import '../../ink/ink_controller.dart';
 import '../../ink/ink_surface.dart';
+import '../../ink/tool_row.dart';
 import '../../ui/clean_menu.dart';
 import '../../ui/color_picker.dart';
 import '../../ui/editor_bar.dart';
+import '../../ui/find_dialog.dart';
 import '../../ui/widgets.dart';
 import '../common/create_dialogs.dart';
 import '../common/object_info.dart';
@@ -65,7 +70,8 @@ class BoardScreen extends StatefulWidget {
   State<BoardScreen> createState() => _BoardScreenState();
 }
 
-class _BoardScreenState extends State<BoardScreen> {
+class _BoardScreenState extends State<BoardScreen>
+    with SingleTickerProviderStateMixin {
   late AppServices _s;
   MfObject? _board;
   List<CanvasNode> _nodes = [];
@@ -101,6 +107,33 @@ class _BoardScreenState extends State<BoardScreen> {
 
   static const _grid = 20.0;
 
+  // Weiche Kamerafahrt
+  late final AnimationController _fly = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 520))
+    ..addListener(_flyTick);
+  Offset _flyFromC = Offset.zero, _flyToC = Offset.zero;
+  double _flyFromS = 1, _flyToS = 1;
+
+  void _flyTick() {
+    final cam = _ink?.camera;
+    if (cam == null || _viewSize.isEmpty) return;
+    final t = Curves.easeInOutCubic.transform(_fly.value);
+    final s = math.exp(
+        math.log(_flyFromS) + (math.log(_flyToS) - math.log(_flyFromS)) * t);
+    cam.lookAt(Offset.lerp(_flyFromC, _flyToC, t)!, s, _viewSize);
+  }
+
+  /// Fliegt weich zu [center] mit Zoom [scale] (Standard: wie jetzt).
+  void _flyTo(Offset center, [double? scale]) {
+    final cam = _ink?.camera;
+    if (cam == null || _viewSize.isEmpty) return;
+    _flyFromC = cam.toWorld(Offset(_viewSize.width / 2, _viewSize.height / 2));
+    _flyFromS = cam.scale;
+    _flyToC = center;
+    _flyToS = (scale ?? cam.scale).clamp(cam.minZoom, cam.maxZoom).toDouble();
+    _fly.forward(from: 0);
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -114,6 +147,7 @@ class _BoardScreenState extends State<BoardScreen> {
 
   @override
   void dispose() {
+    _fly.dispose();
     _saveEditing();
     _editCtrl.dispose();
     _editFocus.dispose();
@@ -293,6 +327,86 @@ class _BoardScreenState extends State<BoardScreen> {
     });
     _startEditing(n);
     _ensureVisible(n);
+  }
+
+  /// Mindmap: Nachbarthema – neue Karte am selben Elternthema.
+  void _sibling(CanvasNode n) {
+    CanvasNode? parent;
+    for (final e in _edges) {
+      if (e.toId == n.id) parent = _node(e.fromId);
+      if (parent != null) break;
+    }
+    if (parent == null) {
+      _quickAdd(n, const Offset(0, 1));
+      return;
+    }
+    final d = n.rect.center - parent.rect.center;
+    _quickAdd(
+        parent,
+        d.dx.abs() >= d.dy.abs()
+            ? Offset(d.dx >= 0 ? 1 : -1, 0)
+            : Offset(0, d.dy >= 0 ? 1 : -1));
+  }
+
+  /// Mindmap ordentlich anordnen: Wurzel links, Unterthemen in Spalten
+  /// rechts daneben, jede Gruppe mittig zu ihrem Thema.
+  void _arrange(CanvasNode any) {
+    var root = any;
+    final up = {root.id};
+    while (true) {
+      CanvasNode? p;
+      for (final e in _edges) {
+        if (e.toId == root.id && !up.contains(e.fromId)) p = _node(e.fromId);
+        if (p != null) break;
+      }
+      if (p == null) break;
+      up.add(p.id);
+      root = p;
+    }
+    final kids = <String, List<CanvasNode>>{};
+    final seen = {root.id};
+    final order = [root];
+    for (var i = 0; i < order.length; i++) {
+      final list = <CanvasNode>[];
+      for (final e in _edges) {
+        if (e.fromId != order[i].id || seen.contains(e.toId)) continue;
+        final c = _node(e.toId);
+        if (c != null && seen.add(c.id)) list.add(c);
+      }
+      list.sort((a, b) => a.y.compareTo(b.y));
+      kids[order[i].id] = list;
+      order.addAll(list);
+    }
+    if (order.length < 2) return;
+    _record();
+    const gx = 90.0, gy = 26.0;
+    final heights = <String, double>{};
+    double height(CanvasNode n) => heights[n.id] ??= math.max(
+        n.h,
+        (kids[n.id] ?? const <CanvasNode>[])
+                .fold<double>(0, (sum, c) => sum + height(c) + gy) -
+            ((kids[n.id] ?? const <CanvasNode>[]).isEmpty ? 0 : gy));
+    void place(CanvasNode n, double x, double top) {
+      n
+        ..x = x
+        ..y = top + (height(n) - n.h) / 2;
+      var y = top;
+      for (final c in kids[n.id] ?? const <CanvasNode>[]) {
+        place(c, x + n.w + gx, y);
+        y += height(c) + gy;
+      }
+    }
+
+    place(root, root.x, root.y + root.h / 2 - height(root) / 2);
+    for (final n in order) {
+      _s.canvas.updateNode(n);
+    }
+    _changed();
+    setState(() {});
+    _flyTo(
+        Offset(root.x + (order.map((n) => n.x + n.w).reduce(math.max) - root.x) / 2,
+            root.y + root.h / 2),
+        _ink?.camera.scale);
   }
 
   /// Schiebt eine neue Karte weiter, bis sie keine andere überdeckt.
@@ -891,6 +1005,10 @@ class _BoardScreenState extends State<BoardScreen> {
       return KeyEventResult.handled;
     }
     if (n == null) return KeyEventResult.ignored;
+    if (key == LogicalKeyboardKey.enter && hw.isShiftPressed) {
+      _sibling(n);
+      return KeyEventResult.handled;
+    }
     if (key == LogicalKeyboardKey.enter) {
       _openNode(n);
       return KeyEventResult.handled;
@@ -987,6 +1105,17 @@ class _BoardScreenState extends State<BoardScreen> {
               key: _layerKey,
               clipBehavior: Clip.none,
               children: [
+                if (_frames.isNotEmpty)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: CustomPaint(
+                        painter: _FramePainter(
+                            [for (final f in _frames) (_frameRect(f), '${f['n']}')],
+                            cam,
+                            mf.accent),
+                      ),
+                    ),
+                  ),
                 Positioned.fill(
                   child: IgnorePointer(
                     child: CustomPaint(
@@ -1230,6 +1359,22 @@ class _BoardScreenState extends State<BoardScreen> {
       ],
       const _TbDivider(),
       _TbButton(
+        icon: Icons.subdirectory_arrow_right_rounded,
+        tooltip: 'Mindmap: Unterthema (Tab)',
+        onTap: () => _quickAdd(n, const Offset(1, 0)),
+      ),
+      _TbButton(
+        icon: Icons.playlist_add_rounded,
+        tooltip: 'Mindmap: Nachbarthema (Umschalt + Enter)',
+        onTap: () => _sibling(n),
+      ),
+      _TbButton(
+        icon: Icons.account_tree_outlined,
+        tooltip: 'Als Mindmap ordentlich anordnen',
+        onTap: () => _arrange(n),
+      ),
+      const _TbDivider(),
+      _TbButton(
         icon: Icons.copy_all_rounded,
         tooltip: 'Duplizieren (Strg/⌘ + D)',
         onTap: () => _duplicate(n),
@@ -1363,6 +1508,7 @@ class _BoardScreenState extends State<BoardScreen> {
     final write = _mode == BoardMode.write;
     return EditorNavBar(
       icon: Icons.bubble_chart_rounded,
+      tabId: board.id,
       title: board.displayTitle,
       subtitle: '${_nodes.length} ${_nodes.length == 1 ? 'Karte' : 'Karten'}',
       onTitleTap: _rename,
@@ -1380,12 +1526,19 @@ class _BoardScreenState extends State<BoardScreen> {
               const CleanMenuEntry('ref', 'Verweis einfügen',
                   icon: Icons.add_link_rounded,
                   subtitle: 'Wissen, PDF, Notizbuch, Seite'),
+              const CleanMenuEntry('photo', 'Bild aus Fotos',
+                  icon: Icons.photo_library_outlined),
+              const CleanMenuEntry('file', 'Bild aus Dateien',
+                  icon: Icons.image_outlined),
               if (_clipboard.isNotEmpty)
                 const CleanMenuEntry('paste', 'Karte einfügen',
                     icon: Icons.content_paste_rounded),
             ],
             onSelected: (v) {
-              if (v == 'ref') {
+              if (v == 'photo' || v == 'file') {
+                _setMode(BoardMode.write);
+                _surfaceKey.currentState?.insertImage(fromFiles: v == 'file');
+              } else if (v == 'ref') {
                 _addReference();
               } else if (v == 'paste') {
                 _paste();
@@ -1395,10 +1548,12 @@ class _BoardScreenState extends State<BoardScreen> {
             },
           ),
         ]),
-        NavGroup(children: [
-          if (write)
-            UndoRedoButtons(controller: c)
-          else ...[
+        // Schreiben: Werkzeuge wie bei Goodnotes; Rückgängig sitzt dann in
+        // der schwebenden Leiste. Sonst: Rückgängig für Karten.
+        if (write)
+          ToolModeButtons(controller: c)
+        else
+          NavGroup(children: [
             NavIconButton(
               icon: Icons.undo_rounded,
               tooltip: 'Rückgängig (Strg/⌘ + Z)',
@@ -1409,8 +1564,43 @@ class _BoardScreenState extends State<BoardScreen> {
               tooltip: 'Wiederholen',
               onTap: _redo.isEmpty ? null : _redoCards,
             ),
-          ],
-        ]),
+          ]),
+        Builder(
+          builder: (ctx) => NavIconButton(
+            icon: Icons.explore_outlined,
+            tooltip: 'Navigator: Ansichten und Karten',
+            onTap: () => Scaffold.of(ctx).openEndDrawer(),
+          ),
+        ),
+        NavIconButton(
+          icon: Icons.search_rounded,
+          tooltip: 'Auf diesem Canvas suchen',
+          onTap: () => showFindDialog(context, (q) {
+            final l = q.toLowerCase();
+            final cam = c.camera;
+            return [
+              for (final n in _nodes)
+                if (n.text.toLowerCase().contains(l))
+                  (
+                    title: 'Karte',
+                    snippet: snippetOf(n.text, q),
+                    open: () {
+                      _setMode(BoardMode.select);
+                      setState(() => _selected = n.id);
+                      _flyTo(n.rect.center, math.max(cam.scale, 0.8));
+                    },
+                  ),
+              for (final t in _s.texts.items(board.id))
+                if (!t.isImage && t.text.toLowerCase().contains(l))
+                  (
+                    title: 'Textfeld',
+                    snippet: snippetOf(t.text, q),
+                    open: () => _flyTo(Offset(t.x + t.w / 2, t.y),
+                        math.max(cam.scale, 0.8)),
+                  ),
+            ];
+          }),
+        ),
         NavGroup(children: [
           ZoomPill(
               camera: c.camera, onFit: _fitAll, fitLabel: 'Alles zeigen'),
@@ -1422,6 +1612,14 @@ class _BoardScreenState extends State<BoardScreen> {
                 icon: Icons.fit_screen_outlined),
             CleanMenuEntry('snap', 'Am Raster ausrichten',
                 icon: Icons.grid_4x4_rounded, checked: _snap),
+            if (_frames.isNotEmpty)
+              const CleanMenuEntry('present', 'Bereiche präsentieren',
+                  icon: Icons.slideshow_rounded),
+            const CleanMenuEntry('export', 'Als Bild oder PDF teilen …',
+                icon: Icons.ios_share_outlined),
+            const CleanMenuEntry('split', 'Daneben öffnen …',
+                icon: Icons.vertical_split_outlined,
+                subtitle: 'Zwei Inhalte nebeneinander'),
             const CleanMenuEntry.divider(),
             const CleanMenuEntry('settings', 'Titel & Hintergrund',
                 icon: Icons.palette_outlined),
@@ -1438,6 +1636,12 @@ class _BoardScreenState extends State<BoardScreen> {
                 await _rename();
               case 'help':
                 await _showShortcuts();
+              case 'present':
+                _presentAt(0);
+              case 'export':
+                await _export();
+              case 'split':
+                if (context.mounted) await openSplitWith(context, board);
             }
           },
         ),
@@ -1454,7 +1658,8 @@ class _BoardScreenState extends State<BoardScreen> {
             child: Text(
               'Enter – Karte beschreiben bzw. Verweis öffnen\n'
               'Esc – Schreiben beenden / Auswahl aufheben\n'
-              'Tab – verbundene Karte rechts (Umschalt + Tab: darunter)\n'
+              'Tab – Unterthema rechts (Umschalt + Tab: darunter)\n'
+              'Umschalt + Enter – Nachbarthema (Mindmap)\n'
               'Pfeiltasten – Karte verschieben (Umschalt: fein)\n'
               'Entf – Karte oder Verbindung löschen\n'
               'Strg/⌘ + Z / Y – rückgängig / wiederholen\n'
@@ -1478,13 +1683,386 @@ class _BoardScreenState extends State<BoardScreen> {
     if (c == null || _viewSize.isEmpty) return;
     final r = CanvasMinimap.contentBounds(c, _nodes);
     if (r == null) {
-      c.camera.reset();
+      _flyTo(Offset.zero, 1);
       return;
     }
     final sx = _viewSize.width / (r.width + 120);
     final sy = _viewSize.height / (r.height + 160);
-    c.camera.lookAt(r.center, math.min(sx, sy), _viewSize);
+    _flyTo(r.center, math.min(sx, sy));
   }
+
+  // --- Navigator: gespeicherte Ansichten + Kartenliste --------------------
+
+  List<Map<String, dynamic>> get _views => [
+        for (final v in (_board?.data['views'] as List?) ?? const [])
+          if (v is Map) v.cast<String, dynamic>()
+      ];
+
+  void _setViews(List<Map<String, dynamic>> views) {
+    final b = _s.objects.get(widget.boardId);
+    if (b == null) return;
+    _s.objects.setData(b.id, {...b.data, 'views': views});
+    setState(() => _board = _s.objects.get(widget.boardId));
+  }
+
+  Future<void> _saveView() async {
+    final cam = _ink?.camera;
+    if (cam == null) return;
+    final name = await askText(context,
+        title: 'Ansicht speichern', hint: 'z. B. Netzwerktechnik',
+        confirm: 'Speichern');
+    if (name == null || name.trim().isEmpty) return;
+    final c = cam.toWorld(Offset(_viewSize.width / 2, _viewSize.height / 2));
+    _setViews([
+      ..._views,
+      {'n': name.trim(), 'x': c.dx, 'y': c.dy, 's': cam.scale}
+    ]);
+  }
+
+  // --- Bereiche (benannte Rahmen) und Präsentation ------------------------
+
+  List<Map<String, dynamic>> get _frames => [
+        for (final v in (_board?.data['frames'] as List?) ?? const [])
+          if (v is Map) v.cast<String, dynamic>()
+      ];
+
+  void _setFrames(List<Map<String, dynamic>> frames) {
+    final b = _s.objects.get(widget.boardId);
+    if (b == null) return;
+    _s.objects.setData(b.id, {...b.data, 'frames': frames});
+    setState(() => _board = _s.objects.get(widget.boardId));
+  }
+
+  static Rect _frameRect(Map<String, dynamic> f) => Rect.fromLTWH(
+      (f['x'] as num).toDouble(),
+      (f['y'] as num).toDouble(),
+      (f['w'] as num).toDouble(),
+      (f['h'] as num).toDouble());
+
+  /// Sichtbarer Bereich (etwas eingerückt) als Rahmen.
+  Rect? _viewRect() {
+    final cam = _ink?.camera;
+    if (cam == null || _viewSize.isEmpty) return null;
+    final r = cam.visibleWorldRect(_viewSize);
+    return r.deflate(math.min(r.width, r.height) * 0.04);
+  }
+
+  Future<void> _addFrame() async {
+    final r = _viewRect();
+    if (r == null) return;
+    final name = await askText(context,
+        title: 'Bereich aus der aktuellen Ansicht',
+        hint: 'z. B. Kapitel 1',
+        confirm: 'Anlegen');
+    if (name == null) return;
+    _setFrames([
+      ..._frames,
+      {
+        'n': name.trim().isEmpty ? 'Bereich ${_frames.length + 1}' : name.trim(),
+        'x': r.left, 'y': r.top, 'w': r.width, 'h': r.height,
+      }
+    ]);
+  }
+
+  void _showFrame(Map<String, dynamic> f) {
+    final r = _frameRect(f);
+    if (_viewSize.isEmpty || r.isEmpty) return;
+    _flyTo(r.center,
+        math.min(_viewSize.width / r.width, _viewSize.height / r.height) * 0.96);
+  }
+
+  /// Präsentation: Index des gezeigten Bereichs (null = aus).
+  int? _present;
+
+  void _presentAt(int i) {
+    final frames = _frames;
+    if (frames.isEmpty) return;
+    final k = i.clamp(0, frames.length - 1).toInt();
+    _finishEditing();
+    setState(() {
+      _present = k;
+      _selected = null;
+      _selectedEdge = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showFrame(frames[k]);
+    });
+  }
+
+  // --- Exportieren ----------------------------------------------------------
+
+  /// Canvas (Ansicht, alles oder ein Bereich) als Bild oder PDF teilen.
+  Future<void> _export() async {
+    final c = _ink;
+    if (c == null || _viewSize.isEmpty) return;
+    final frames = _frames;
+    final choice = await showDialog<(String, bool)>(
+      context: context,
+      builder: (ctx) {
+        var pdf = false;
+        return StatefulBuilder(
+          builder: (ctx, setLocal) => SimpleDialog(
+            title: const Text('Canvas teilen'),
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: SegmentedButton<bool>(
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('Bild (PNG)')),
+                    ButtonSegment(value: true, label: Text('PDF')),
+                  ],
+                  selected: {pdf},
+                  onSelectionChanged: (v) => setLocal(() => pdf = v.first),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, ('view', pdf)),
+                child: const Text('Aktuelle Ansicht'),
+              ),
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, ('all', pdf)),
+                child: const Text('Ganzer Canvas'),
+              ),
+              for (var i = 0; i < frames.length; i++)
+                SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, ('$i', pdf)),
+                  child: Text('Bereich: ${frames[i]['n']}'),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+    if (choice == null || !mounted) return;
+    final cam = c.camera;
+    final before = cam.toWorld(Offset(_viewSize.width / 2, _viewSize.height / 2));
+    final beforeScale = cam.scale;
+    Rect? target;
+    if (choice.$1 == 'all') {
+      target = CanvasMinimap.contentBounds(c, _nodes)?.inflate(40);
+    } else if (choice.$1 != 'view') {
+      target = _frameRect(frames[int.parse(choice.$1)]);
+    }
+    _finishEditing();
+    c.clearSelection();
+    setState(() {
+      _selected = null;
+      _selectedEdge = null;
+    });
+    if (target != null && !target.isEmpty) {
+      cam.lookAt(
+          target.center,
+          math.min(_viewSize.width / target.width,
+              _viewSize.height / target.height),
+          _viewSize);
+    }
+    await WidgetsBinding.instance.endOfFrame;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    final ratio = (MediaQuery.of(context).devicePixelRatio * 1.5)
+        .clamp(2.0, 4.0)
+        .toDouble();
+    final img = await _surfaceKey.currentState?.captureContent(pixelRatio: ratio);
+    if (target != null) cam.lookAt(before, beforeScale, _viewSize);
+    if (img == null || !mounted) return;
+    final data = await img.toByteData(format: ui.ImageByteFormat.png);
+    final size = Size(img.width / ratio, img.height / ratio);
+    img.dispose();
+    if (data == null || !mounted) return;
+    final png = data.buffer.asUint8List();
+    final name = _board?.displayTitle ?? 'Canvas';
+    if (choice.$2) {
+      await sharePdf(name, [ExportPage(size, png)]);
+    } else {
+      final box = context.findRenderObject() as RenderBox?;
+      await Share.shareXFiles(
+          [XFile.fromData(png, mimeType: 'image/png', name: '$name.png')],
+          sharePositionOrigin: box == null
+              ? null
+              : box.localToGlobal(Offset.zero) & const Size(10, 10));
+    }
+  }
+
+  Widget _navigatorPanel(BuildContext context) {
+    final mf = context.mf;
+    var query = '';
+    return Drawer(
+      width: 320,
+      child: SafeArea(
+        child: StatefulBuilder(builder: (context, setLocal) {
+          final views = _views;
+          final cards = [
+            for (final n in _nodes)
+              if (n.text.toLowerCase().contains(query.toLowerCase())) n
+          ]..sort((a, b) =>
+              a.text.toLowerCase().compareTo(b.text.toLowerCase()));
+          void go(Offset c, [double? s]) {
+            Navigator.of(context).pop();
+            _flyTo(c, s);
+          }
+
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Row(children: [
+                Expanded(
+                  child: Text('Ansichten',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: mf.text)),
+                ),
+                TextButton.icon(
+                  onPressed: () async {
+                    await _saveView();
+                    setLocal(() {});
+                  },
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Aktuelle speichern'),
+                ),
+              ]),
+              ListTile(
+                leading: const Icon(Icons.fit_screen_outlined),
+                title: const Text('Alles zeigen'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _fitAll();
+                },
+              ),
+              for (var i = 0; i < views.length; i++)
+                ListTile(
+                  leading: Icon(Icons.bookmark_outline, color: mf.accent),
+                  title: Text('${views[i]['n']}'),
+                  onTap: () => go(
+                      Offset((views[i]['x'] as num).toDouble(),
+                          (views[i]['y'] as num).toDouble()),
+                      (views[i]['s'] as num).toDouble()),
+                  trailing: IconButton(
+                    tooltip: 'Ansicht löschen',
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () {
+                      _setViews([...views]..removeAt(i));
+                      setLocal(() {});
+                    },
+                  ),
+                ),
+              const Divider(height: 28),
+              Row(children: [
+                Expanded(
+                  child: Text('Bereiche',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: mf.text)),
+                ),
+                TextButton.icon(
+                  onPressed: () async {
+                    await _addFrame();
+                    setLocal(() {});
+                  },
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Aus Ansicht'),
+                ),
+              ]),
+              if (_frames.isEmpty)
+                Text(
+                    'Ein Bereich ist ein benannter Ausschnitt – zum schnellen '
+                    'Hinspringen und zum Präsentieren nacheinander.',
+                    style: TextStyle(fontSize: 12.5, color: mf.textMuted))
+              else
+                ListTile(
+                  leading: Icon(Icons.slideshow_rounded, color: mf.accent),
+                  title: const Text('Bereiche präsentieren'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _presentAt(0);
+                  },
+                ),
+              for (var i = 0; i < _frames.length; i++)
+                ListTile(
+                  leading: Text('${i + 1}',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700, color: mf.accent)),
+                  title: Text('${_frames[i]['n']}'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _showFrame(_frames[i]);
+                  },
+                  trailing: PopupMenuButton<String>(
+                    onSelected: (v) async {
+                      final list = _frames;
+                      switch (v) {
+                        case 'rename':
+                          final t = await askText(context,
+                              title: 'Bereich umbenennen',
+                              initial: '${list[i]['n']}');
+                          if (t == null || t.trim().isEmpty) return;
+                          list[i] = {...list[i], 'n': t.trim()};
+                        case 'fit':
+                          final r = _viewRect();
+                          if (r == null) return;
+                          list[i] = {
+                            ...list[i],
+                            'x': r.left, 'y': r.top, 'w': r.width, 'h': r.height,
+                          };
+                        case 'up':
+                          if (i == 0) return;
+                          list.insert(i - 1, list.removeAt(i));
+                        case 'del':
+                          list.removeAt(i);
+                      }
+                      _setFrames(list);
+                      setLocal(() {});
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'rename', child: Text('Umbenennen')),
+                      PopupMenuItem(
+                          value: 'fit', child: Text('An aktuelle Ansicht anpassen')),
+                      PopupMenuItem(value: 'up', child: Text('Nach oben')),
+                      PopupMenuItem(value: 'del', child: Text('Löschen')),
+                    ],
+                  ),
+                ),
+              const Divider(height: 28),
+              Text('Karten (${_nodes.length})',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 16, color: mf.text)),
+              const SizedBox(height: 8),
+              TextField(
+                decoration: const InputDecoration(
+                    isDense: true,
+                    prefixIcon: Icon(Icons.search, size: 20),
+                    hintText: 'Karte suchen'),
+                onChanged: (v) => setLocal(() => query = v),
+              ),
+              const SizedBox(height: 6),
+              for (final n in cards)
+                ListTile(
+                  dense: true,
+                  leading: Icon(Icons.crop_landscape_rounded,
+                      color: n.color == null ? mf.textMuted : Color(n.color!)),
+                  title: Text(
+                      n.text.isEmpty ? '(leer)' : n.text.split('\n').first,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  onTap: () {
+                    if (_mode == BoardMode.write ||
+                        _mode == BoardMode.navigate) {
+                      _setMode(BoardMode.select);
+                    }
+                    setState(() => _selected = n.id);
+                    go(n.rect.center, math.max(_ink?.camera.scale ?? 1, 0.8));
+                  },
+                ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -1500,6 +2078,7 @@ class _BoardScreenState extends State<BoardScreen> {
       onKeyEvent: _onKey,
       child: Scaffold(
         backgroundColor: paper.sheet,
+        endDrawer: _navigatorPanel(context),
         body: Stack(
           children: [
             Positioned.fill(
@@ -1509,9 +2088,18 @@ class _BoardScreenState extends State<BoardScreen> {
                 paper: board.paper,
                 showInkTools: _mode == BoardMode.write,
                 navBar: _nav,
+                presenting: _present != null,
+                presentationLabel: _present == null || _frames.isEmpty
+                    ? null
+                    : '${_present! + 1} / ${_frames.length} · '
+                        '${_frames[_present!.clamp(0, _frames.length - 1)]['n']}',
+                onExitPresentation: () => setState(() => _present = null),
                 onSaved: _changed,
                 onControllerReady: (c) {
                   _ink = c;
+                  // Unendliche Fläche: Strichstärke folgt dem Zoom, sonst
+                  // wären Striche weit herausgezoomt unsichtbar dünn.
+                  c.widthFollowsZoom = true;
                   c.setDrawingEnabled(_mode == BoardMode.write);
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (mounted) setState(() {});
@@ -1523,17 +2111,18 @@ class _BoardScreenState extends State<BoardScreen> {
                 overlayBuilder: (context, c) => _overlay(context, c, paper),
               ),
             ),
-            if (_ink != null)
+            if (_ink != null && _present == null)
               Positioned(
                 right: 16,
                 bottom: 72,
                 child: SafeArea(
                   top: false,
                   left: false,
-                  child: CanvasMinimap(controller: _ink!, nodes: _nodes),
+                  child: CanvasMinimap(
+                      controller: _ink!, nodes: _nodes, onJump: _flyTo),
                 ),
               ),
-            if (_ink != null)
+            if (_ink != null && _present == null)
               Positioned(
                 left: 16,
                 right: 16,
@@ -1546,9 +2135,11 @@ class _BoardScreenState extends State<BoardScreen> {
                       final c = _ink!;
                       final content = CanvasMinimap.contentBounds(c, _nodes);
                       final view = c.camera.viewport;
+                      // Auch ganz weit draußen: schnell zurück zu allem.
                       if (content == null ||
                           view.isEmpty ||
-                          c.camera.visibleWorldRect(view).overlaps(content)) {
+                          (c.camera.scale >= 0.2 &&
+                              c.camera.visibleWorldRect(view).overlaps(content))) {
                         return const SizedBox.shrink();
                       }
                       return Center(
@@ -1562,7 +2153,48 @@ class _BoardScreenState extends State<BoardScreen> {
                   ),
                 ),
               ),
-            if (showHint)
+            if (_present != null && _frames.isNotEmpty)
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 18,
+                child: SafeArea(
+                  top: false,
+                  child: Center(
+                    child: FloatingPanel(
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        ToolButton(
+                          icon: Icons.chevron_left_rounded,
+                          label: 'Voriger Bereich',
+                          onTap: _present! > 0
+                              ? () => _presentAt(_present! - 1)
+                              : null,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: Text(
+                              '${_frames[_present!.clamp(0, _frames.length - 1)]['n']}',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w600, color: mf.text)),
+                        ),
+                        ToolButton(
+                          icon: Icons.chevron_right_rounded,
+                          label: 'Nächster Bereich',
+                          onTap: _present! < _frames.length - 1
+                              ? () => _presentAt(_present! + 1)
+                              : null,
+                        ),
+                        ToolButton(
+                          icon: Icons.close_rounded,
+                          label: 'Präsentation beenden',
+                          onTap: () => setState(() => _present = null),
+                        ),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            if (showHint && _present == null)
               Positioned(
                 bottom: 16,
                 left: 16,
@@ -1884,4 +2516,42 @@ class _ModeSwitch extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Bereiche: gestrichelter Rahmen mit Namen oben links.
+class _FramePainter extends CustomPainter {
+  _FramePainter(this.frames, this.cam, this.accent);
+
+  final List<(Rect, String)> frames;
+  final Camera cam;
+  final Color accent;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..color = accent.withValues(alpha: 0.55)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+    for (final f in frames) {
+      final r = Rect.fromPoints(cam.toScreen(f.$1.topLeft), cam.toScreen(f.$1.bottomRight));
+      final path = Path()..addRRect(RRect.fromRectAndRadius(r, const Radius.circular(12)));
+      for (final m in path.computeMetrics()) {
+        for (var d = 0.0; d < m.length; d += 14) {
+          canvas.drawPath(m.extractPath(d, math.min(d + 8, m.length)), line);
+        }
+      }
+      final tp = TextPainter(
+        text: TextSpan(
+            text: f.$2,
+            style: TextStyle(
+                color: accent, fontSize: 13, fontWeight: FontWeight.w700)),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: math.max(40.0, r.width));
+      tp.paint(canvas, r.topLeft + Offset(6, -tp.height - 4));
+      tp.dispose();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FramePainter old) => true;
 }

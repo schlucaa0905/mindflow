@@ -1,12 +1,17 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../app/theme.dart';
 import '../data/text_repository.dart';
+import '../storage/image_store.dart';
 import '../ui/clean_menu.dart';
 import 'ink_controller.dart';
+import 'ink_history.dart';
 import 'list_formatter.dart';
 
 /// Schriftstil eines Textfelds – identisch auf dem Bildschirm, in
@@ -19,9 +24,11 @@ TextStyle textItemStyle(TextItem t) {
     TextFont.rounded =>
       ('Avenir Next', const ['Segoe UI', 'Arial Rounded MT Bold']),
   };
+  final lh = t.lineHeight;
   return TextStyle(
     fontSize: t.size,
-    height: 1.3,
+    height: lh == null ? 1.3 : lh / t.size,
+    leadingDistribution: TextLeadingDistribution.even,
     color: Color(t.color),
     fontFamily: family,
     fontFamilyFallback: fallback,
@@ -30,6 +37,55 @@ TextStyle textItemStyle(TextItem t) {
     decoration: t.underline ? TextDecoration.underline : null,
     decorationColor: Color(t.color),
   );
+}
+
+/// Feste Zeilenhöhe für Text auf Linien/Kästchen – jede Zeile gleich hoch.
+StrutStyle? textItemStrut(TextItem t) {
+  final lh = t.lineHeight;
+  if (lh == null) return null;
+  return StrutStyle(
+    fontSize: t.size,
+    height: lh / t.size,
+    leadingDistribution: TextLeadingDistribution.even,
+    forceStrutHeight: true,
+  );
+}
+
+/// Linien bzw. Kästchen des Papiers, an denen Text ausgerichtet wird.
+class TextLineGrid {
+  const TextLineGrid(this.gap, this.origin, {this.snapX = false});
+
+  /// Abstand der Linien in Seiten-Punkten.
+  final double gap;
+
+  /// Lage der ersten Linie.
+  final double origin;
+
+  /// Auch waagerecht an Kästchen ausrichten (kariert, Punkte).
+  final bool snapX;
+
+  /// Richtet [t] aus: Zeilenhöhe = ein Vielfaches des Linienabstands.
+  /// Liegt die Schrift nahe genug an einer Linie bzw. Kästchenkante, dockt
+  /// sie dort an (Magnet) – sonst bleibt sie frei, wo sie ist.
+  void snap(TextItem t) {
+    t.lineHeight = gap * math.max(1, (t.size * 1.15 / gap).ceil());
+    final tp = TextPainter(
+      text: TextSpan(text: 'Hg', style: textItemStyle(t)),
+      strutStyle: textItemStrut(t),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final base = tp.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+    tp.dispose();
+    final pad = textItemPadding(t).top;
+    final reach = math.min(7.0, gap * 0.32);
+    final k = math.max(0, ((t.y + pad + base - origin) / gap).round());
+    final y = origin + k * gap - base - pad;
+    if ((y - t.y).abs() <= reach) t.y = y;
+    if (snapX) {
+      final x = (t.x / gap).round() * gap + 3;
+      if ((x - t.x).abs() <= reach) t.x = x;
+    }
+  }
 }
 
 /// Innenabstand je nach Hintergrund (in Seiten-Punkten).
@@ -72,6 +128,7 @@ void paintTextItems(Canvas canvas, List<TextItem> items) {
     final inner = math.max(1.0, t.w - pad.horizontal);
     final tp = TextPainter(
       text: TextSpan(text: t.text, style: textItemStyle(t)),
+      strutStyle: textItemStrut(t),
       textDirection: TextDirection.ltr,
       textAlign: t.align,
     )..layout(minWidth: inner, maxWidth: inner);
@@ -84,6 +141,25 @@ void paintTextItems(Canvas canvas, List<TextItem> items) {
     }
     tp.paint(canvas, Offset(t.x + pad.left, t.y + pad.top));
     tp.dispose();
+  }
+}
+
+/// Zeichnet eingefügte Bilder (fehlende werden nachgeladen).
+void paintPageImages(Canvas canvas, List<TextItem> items) {
+  for (final t in items) {
+    final f = t.file;
+    if (!t.isImage || f == null) continue;
+    final img = ImageStore.cached(f);
+    if (img == null) {
+      ImageStore.load(f);
+      continue;
+    }
+    canvas.drawImageRect(
+      img,
+      Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+      Rect.fromLTWH(t.x, t.y, t.w, t.h),
+      Paint()..filterQuality = FilterQuality.medium,
+    );
   }
 }
 
@@ -106,7 +182,11 @@ class TextLayer extends StatefulWidget {
     required this.ownerId,
     required this.controller,
     required this.repo,
+    this.lineGrid,
   });
+
+  /// Linien/Kästchen des Papiers (null = freie Platzierung).
+  final TextLineGrid? lineGrid;
 
   /// Dieselbe ID, unter der die Handschrift gespeichert ist.
   final String ownerId;
@@ -117,7 +197,7 @@ class TextLayer extends StatefulWidget {
   State<TextLayer> createState() => TextLayerState();
 }
 
-class TextLayerState extends State<TextLayer> {
+class TextLayerState extends State<TextLayer> implements PageItems {
   InkController get c => widget.controller;
 
   List<TextItem> _items = [];
@@ -138,11 +218,13 @@ class TextLayerState extends State<TextLayer> {
     _seenSize = c.textSize;
     _seenTool = c.tool;
     c.addListener(_onController);
+    c.items = this;
   }
 
   @override
   void dispose() {
     c.removeListener(_onController);
+    if (identical(c.items, this)) c.items = null;
     // Beim Schließen still speichern (keine Meldungen während des Abbaus).
     final active = _active;
     if (active != null) {
@@ -198,6 +280,7 @@ class TextLayerState extends State<TextLayer> {
       }
       if (size != _seenSize && active.size != size) {
         active.size = size;
+        widget.lineGrid?.snap(active);
         changed = true;
       }
       if (changed) widget.repo.update(active);
@@ -236,6 +319,10 @@ class TextLayerState extends State<TextLayer> {
       size: size,
       color: c.penColor.toARGB32(),
     );
+    if (widget.lineGrid != null) {
+      widget.lineGrid!.snap(item);
+      widget.repo.update(item);
+    }
     setState(() {
       _items.add(item);
       _activeId = item.id;
@@ -322,7 +409,10 @@ class TextLayerState extends State<TextLayer> {
 
   void _changeSize(TextItem t, double factor) {
     final next = (t.size * factor).clamp(8.0, 96.0).toDouble();
-    setState(() => t.size = double.parse(next.toStringAsFixed(1)));
+    setState(() {
+      t.size = double.parse(next.toStringAsFixed(1));
+      widget.lineGrid?.snap(t);
+    });
     widget.repo.update(t);
   }
 
@@ -335,12 +425,17 @@ class TextLayerState extends State<TextLayer> {
 
   void _dragStart(DragStartDetails d) => _dragLast = d.globalPosition;
 
+  /// Position ohne Magnet während des Ziehens.
+  Offset? _dragRaw;
+
   void _move(TextItem t, DragUpdateDetails d) {
     final last = _dragLast;
     _dragLast = d.globalPosition;
     if (last == null) return;
     final delta = (d.globalPosition - last) / c.camera.scale;
-    var x = t.x + delta.dx, y = t.y + delta.dy;
+    final raw = (_dragRaw ?? Offset(t.x, t.y)) + delta;
+    _dragRaw = raw;
+    var x = raw.dx, y = raw.dy;
     final b = c.drawBounds;
     if (b != null) {
       x = x.clamp(b.left - t.w * 0.5, b.right - 20).toDouble();
@@ -349,6 +444,7 @@ class TextLayerState extends State<TextLayer> {
     setState(() {
       t.x = x;
       t.y = y;
+      widget.lineGrid?.snap(t); // dockt beim Ziehen an, wenn nah genug
     });
   }
 
@@ -365,6 +461,8 @@ class TextLayerState extends State<TextLayer> {
 
   void _dragEnd(TextItem t) {
     _dragLast = null;
+    _dragRaw = null;
+    setState(() => widget.lineGrid?.snap(t));
     widget.repo.update(t);
   }
 
@@ -372,19 +470,24 @@ class TextLayerState extends State<TextLayer> {
 
   @override
   Widget build(BuildContext context) {
+    // Bilder liegen unter der Handschrift – gezeichnet von der Schreibfläche.
+    c.pageImages.value = [for (final t in _items) if (t.isImage) t];
+    c.pageLinks.value = [for (final t in _items) if (t.isLink) t];
     final interactive = c.tool == ToolMode.text && c.drawingEnabled;
     return IgnorePointer(
       ignoring: !interactive,
       child: LayoutBuilder(builder: (context, constraints) {
         return AnimatedBuilder(
-          animation: c.camera,
+          animation: Listenable.merge(
+              [c.camera, c.dragOffset, c.dragScale, c.dragRotate]),
           builder: (context, _) {
             _ensureVisible(constraints.biggest);
             final active = _active;
             return Stack(
               clipBehavior: Clip.none,
               children: [
-                for (final t in _items) _item(context, t, interactive),
+                for (final t in _items)
+                  if (t.isText) _item(context, _preview(t), interactive),
                 if (active != null && interactive)
                   _toolbar(context, active, constraints.biggest),
               ],
@@ -409,6 +512,104 @@ class TextLayerState extends State<TextLayer> {
         if (mounted) c.camera.panBy(Offset(0, -dy));
       });
     }
+  }
+
+  /// Während das Lasso verschiebt, wandern ausgewählte Elemente mit.
+  TextItem _preview(TextItem t) =>
+      c.draggingSelection && c.selectedItems.contains(t.id)
+          ? c.previewItem(t)
+          : t;
+
+  // --- PageItems (Lasso, Rückgängig) ------------------------------------
+
+  @override
+  List<TextItem> get all => _items;
+
+  @override
+  Rect rectOf(TextItem t) {
+    if (!t.isText) return Rect.fromLTWH(t.x, t.y, t.w, t.h);
+    final pad = textItemPadding(t);
+    final inner = math.max(1.0, t.w - pad.horizontal);
+    final tp = TextPainter(
+      text: TextSpan(text: t.text.isEmpty ? ' ' : t.text, style: textItemStyle(t)),
+      strutStyle: textItemStrut(t),
+      textDirection: TextDirection.ltr,
+      textAlign: t.align,
+    )..layout(minWidth: inner, maxWidth: inner);
+    final h = tp.height + pad.vertical;
+    tp.dispose();
+    return Rect.fromLTWH(t.x, t.y, t.w, h);
+  }
+
+  @override
+  void write(List<TextItem> upsert, Set<String> remove) {
+    for (final id in remove) {
+      widget.repo.delete(id, notify: false);
+    }
+    for (final t in upsert) {
+      widget.repo.upsert(t.copy(ownerId: widget.ownerId));
+    }
+    if (mounted) setState(() => _items = widget.repo.items(widget.ownerId));
+  }
+
+  /// Bild einfügen (aus Fotos oder Dateien) – danach ist es mit dem Lasso
+  /// ausgewählt und lässt sich verschieben, vergrößern oder löschen.
+  Future<void> insertImage({required bool fromFiles}) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    Uint8List bytes;
+    String ext;
+    if (fromFiles) {
+      final f = await openFile(acceptedTypeGroups: const [
+        XTypeGroup(
+          label: 'Bilder',
+          extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic'],
+          uniformTypeIdentifiers: ['public.image'],
+        ),
+      ]);
+      if (f == null) return;
+      bytes = await f.readAsBytes();
+      ext = f.name.contains('.') ? f.name.split('.').last : 'png';
+    } else {
+      final x = await ImagePicker()
+          .pickImage(source: ImageSource.gallery, requestFullMetadata: false);
+      if (x == null) return;
+      bytes = await x.readAsBytes();
+      ext = x.name.contains('.') ? x.name.split('.').last : 'jpg';
+    }
+    final size = await ImageStore.sizeOf(bytes);
+    if (size == null || size.isEmpty) {
+      messenger?.showSnackBar(const SnackBar(
+          content: Text('Dieses Bildformat wird nicht unterstützt – '
+              'bitte als JPG oder PNG speichern.')));
+      return;
+    }
+    final name = await ImageStore.save(bytes, ext);
+    if (!mounted) return;
+    final cam = c.camera;
+    final view = cam.viewport;
+    final center = view.isEmpty
+        ? Offset.zero
+        : cam.toWorld(Offset(view.width / 2, view.height / 2));
+    final b = c.drawBounds;
+    final maxW = (b?.width ?? (view.isEmpty ? 600 : view.width / cam.scale)) * 0.6;
+    final w = math.min(maxW, size.width);
+    final h = w * size.height / size.width;
+    var x = center.dx - w / 2, y = center.dy - h / 2;
+    if (b != null) {
+      x = x.clamp(b.left, math.max(b.left, b.right - w)).toDouble();
+      y = y.clamp(b.top, math.max(b.top, b.bottom - h)).toDouble();
+    }
+    finishEditing();
+    c.insertItems([
+      TextItem.image(
+          id: widget.repo.newId(),
+          ownerId: widget.ownerId,
+          x: x,
+          y: y,
+          w: w,
+          h: h,
+          file: name)
+    ]);
   }
 
   Widget _item(BuildContext context, TextItem t, bool interactive) {
@@ -443,6 +644,7 @@ class TextLayerState extends State<TextLayer> {
         textAlign: t.align,
         inputFormatters: const [ListContinuationFormatter()],
         style: style,
+        strutStyle: textItemStrut(t),
         cursorColor: mf.accent,
         keyboardType: TextInputType.multiline,
         textCapitalization: TextCapitalization.sentences,
@@ -464,7 +666,7 @@ class TextLayerState extends State<TextLayer> {
         child: SizedBox(
           width: double.infinity,
           child: Text(t.text.isEmpty ? ' ' : t.text,
-              textAlign: t.align, style: style),
+              textAlign: t.align, style: style, strutStyle: textItemStrut(t)),
         ),
       );
     }
@@ -484,20 +686,8 @@ class TextLayerState extends State<TextLayer> {
           width: t.w,
           decoration: active
               ? BoxDecoration(
-                  border: Border.all(
-                      color: mf.accent.withValues(alpha: 0.8),
-                      width: 1.4 / s),
-                  borderRadius: BorderRadius.circular(4 / s),
-                  color: mf.accent.withValues(alpha: 0.05),
-                )
-              : interactive
-                  ? BoxDecoration(
-                      border: Border.all(
-                          color: mf.textMuted.withValues(alpha: 0.35),
-                          width: 1 / s),
-                      borderRadius: BorderRadius.circular(4 / s),
-                    )
-                  : null,
+                  border: Border.all(color: mf.accent, width: 1 / s))
+              : null,
           child: Stack(
             clipBehavior: Clip.none,
             children: [
@@ -515,14 +705,15 @@ class TextLayerState extends State<TextLayer> {
                     child: MouseRegion(
                       cursor: SystemMouseCursors.resizeLeftRight,
                       child: SizedBox(
-                        width: 26 / s,
+                        width: 28 / s,
                         child: Center(
                           child: Container(
-                            width: 6 / s,
-                            height: 26 / s,
+                            width: 10 / s,
+                            height: 10 / s,
                             decoration: BoxDecoration(
-                              color: mf.accent,
-                              borderRadius: BorderRadius.circular(3 / s),
+                              color: Colors.white,
+                              border: Border.all(
+                                  color: mf.accent, width: 1.5 / s),
                             ),
                           ),
                         ),
@@ -538,7 +729,10 @@ class TextLayerState extends State<TextLayer> {
   }
 
   void _set(TextItem t, VoidCallback change) {
-    setState(change);
+    setState(() {
+      change();
+      widget.lineGrid?.snap(t);
+    });
     widget.repo.update(t);
   }
 
@@ -602,7 +796,7 @@ class TextLayerState extends State<TextLayer> {
           width: 1,
           height: 22,
           margin: const EdgeInsets.symmetric(horizontal: 4),
-          color: mf.border,
+          color: Colors.white24,
         );
     return Positioned(
       left: left,
@@ -614,9 +808,8 @@ class TextLayerState extends State<TextLayer> {
             height: 46,
             padding: const EdgeInsets.symmetric(horizontal: 4),
             decoration: BoxDecoration(
-              color: mf.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: mf.glassEdge),
+              color: const Color(0xF2232326),
+              borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
                     color: Colors.black.withValues(alpha: mf.isDark ? 0.45 : 0.15),
@@ -641,8 +834,8 @@ class TextLayerState extends State<TextLayer> {
                         child: SizedBox(
                           width: 36,
                           height: 42,
-                          child: Icon(Icons.open_with_rounded,
-                              size: 18, color: mf.textMuted),
+                          child: const Icon(Icons.open_with_rounded,
+                              size: 18, color: Colors.white70),
                         ),
                       ),
                     ),
@@ -664,7 +857,7 @@ class TextLayerState extends State<TextLayer> {
                                 w: 0,
                                 text: '',
                                 size: 13,
-                                color: mf.text.toARGB32(),
+                                color: 0xFFFFFFFF,
                                 font: t.font,
                               ))),
                         ),
@@ -703,6 +896,7 @@ class TextLayerState extends State<TextLayer> {
                   CleanMenuButton(
                     tooltip: 'Hintergrund',
                     icon: Icons.format_color_fill_rounded,
+                    iconColor: Colors.white,
                     size: 36,
                     entries: [
                       for (final b in TextBackground.values)
@@ -740,7 +934,6 @@ class TextLayerState extends State<TextLayer> {
   }
 
   Widget _colorMenu(BuildContext context, TextItem t) {
-    final mf = context.mf;
     final colors = <int>{c.penColor.toARGB32(), ..._textColors}.toList();
     return CleanMenuButton(
       tooltip: 'Textfarbe',
@@ -754,7 +947,7 @@ class TextLayerState extends State<TextLayer> {
             decoration: BoxDecoration(
               color: Color(t.color),
               shape: BoxShape.circle,
-              border: Border.all(color: mf.text.withValues(alpha: 0.35)),
+              border: Border.all(color: Colors.white54),
             ),
           ),
         ),
@@ -789,10 +982,10 @@ class TextLayerState extends State<TextLayer> {
       {bool selected = false, bool danger = false, bool accent = false}) {
     final mf = context.mf;
     final color = danger
-        ? mf.danger
+        ? const Color(0xFFFF6B6B)
         : accent || selected
-            ? mf.accent
-            : mf.text;
+            ? mf.accent2
+            : Colors.white;
     return Tooltip(
       message: tip,
       child: InkWell(
@@ -802,8 +995,8 @@ class TextLayerState extends State<TextLayer> {
           width: 36,
           height: 34,
           decoration: BoxDecoration(
-            color: selected ? mf.accentSoft : null,
-            borderRadius: BorderRadius.circular(10),
+            color: selected ? Colors.white.withValues(alpha: 0.16) : null,
+            borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(icon, size: 19, color: color),
         ),

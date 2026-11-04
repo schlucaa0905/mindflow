@@ -13,11 +13,15 @@ class Flashcard {
   Flashcard(this.object)
       : front = (object.data['front'] as String?) ?? object.title,
         back = (object.data['back'] as String?) ?? '',
+        image = object.data['image'] as String?,
         schedule = CardSchedule.fromJson(object.data);
 
   final MfObject object;
   final String front;
   final String back;
+
+  /// Bild auf der Vorderseite (z. B. mit dem Lasso aus dem Notizbuch).
+  final String? image;
   final CardSchedule schedule;
 
   String get id => object.id;
@@ -139,12 +143,17 @@ class StudyRepository {
     required String front,
     required String back,
     String? entryId,
+    String? image,
   }) {
     final o = _objects.create(
       type: ObjectType.flashcard,
-      title: front.trim(),
+      title: front.trim().isEmpty && image != null ? 'Bildkarte' : front.trim(),
       parentId: entryId,
-      data: {'front': front.trim(), 'back': back.trim()},
+      data: {
+        'front': front.trim(),
+        'back': back.trim(),
+        if (image != null) 'image': image,
+      },
     );
     return Flashcard(o);
   }

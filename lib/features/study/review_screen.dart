@@ -7,6 +7,7 @@ import '../../app/services.dart';
 import '../../app/theme.dart';
 import '../../data/srs.dart';
 import '../../data/study_repository.dart';
+import '../../storage/image_store.dart';
 import '../../ui/futuristic.dart';
 
 /// Startet eine Lernrunde mit allen fälligen Karten (optional nur die
@@ -197,6 +198,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                     label: entry?.displayTitle,
                     front: card.front,
                     back: card.back,
+                    image: card.image,
                   ),
                 ),
               ),
@@ -253,8 +255,10 @@ class _FlipCard extends StatelessWidget {
     required this.front,
     required this.back,
     this.label,
+    this.image,
   });
 
+  final String? image;
   final bool revealed;
   final String front;
   final String back;
@@ -313,6 +317,9 @@ class _FlipCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 28),
+            if (image != null)
+              StoredImage(image!, height: isBack ? 120 : 220),
+            if (front.isNotEmpty)
             Text(
               front,
               textAlign: TextAlign.center,

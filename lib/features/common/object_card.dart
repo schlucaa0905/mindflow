@@ -9,6 +9,8 @@ import '../../ui/futuristic.dart';
 import '../../ui/widgets.dart';
 import '../notebook/notebook_cover.dart';
 import 'create_dialogs.dart';
+import 'folders.dart';
+import '../../storage/ink_store.dart';
 
 /// Karte für Notizbuch oder Canvas in Übersichten.
 class ObjectCard extends StatelessWidget {
@@ -287,6 +289,11 @@ class ObjectMenu extends StatelessWidget {
               icon: Icons.drive_file_rename_outline),
         CleanMenuEntry('pin', o.pinned ? 'Nicht mehr anheften' : 'Anheften',
             icon: o.pinned ? Icons.push_pin : Icons.push_pin_outlined),
+        const CleanMenuEntry('move', 'In Ordner verschieben',
+            icon: Icons.drive_file_move_outline),
+        if (isNotebook)
+          const CleanMenuEntry('dup', 'Duplizieren',
+              icon: Icons.copy_all_outlined),
         const CleanMenuEntry.divider(),
         const CleanMenuEntry('archive', 'Archivieren',
             icon: Icons.inventory_2_outlined),
@@ -301,8 +308,13 @@ class ObjectMenu extends StatelessWidget {
             final t = await askText(context,
                 title: 'Umbenennen', initial: o.title);
             if (t != null && t.trim().isNotEmpty) repo.rename(o.id, t.trim());
+          case 'dup':
+            await _duplicateNotebook(context, o);
           case 'pin':
             repo.setPinned(o.id, !o.pinned);
+          case 'move':
+            final f = await pickFolder(context, repo, o.type);
+            if (f != null) repo.setData(o.id, {...o.data, 'category': f});
           case 'archive':
             repo.setArchived(o.id, true);
             _snack(context, '„${o.displayTitle}“ archiviert',
@@ -345,4 +357,24 @@ class ObjectGrid extends StatelessWidget {
       itemBuilder: (_, i) => ObjectCard(object: objects[i]),
     );
   }
+}
+
+/// Kopiert ein Notizbuch samt Seiten, Handschrift, Textfeldern und Bildern.
+Future<void> _duplicateNotebook(BuildContext context, MfObject nb) async {
+  final s = Services.of(context);
+  final copy = s.objects.create(
+      type: ObjectType.notebook,
+      title: '${nb.displayTitle} (Kopie)',
+      data: Map<String, dynamic>.of(nb.data));
+  for (final p in s.objects.children(nb.id)) {
+    if (p.type != ObjectType.page) continue;
+    final np = s.objects.create(
+        type: ObjectType.page,
+        parentId: copy.id,
+        position: p.position,
+        data: Map<String, dynamic>.of(p.data));
+    await InkStore.duplicate(p.id, np.id);
+    s.texts.duplicateAll(p.id, np.id);
+  }
+  s.objects.touch(copy.id);
 }

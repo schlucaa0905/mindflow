@@ -5,12 +5,14 @@ import '../../app/theme.dart';
 import '../../data/card_generator.dart';
 import '../../data/models.dart';
 import '../../data/study_repository.dart';
+import '../../storage/image_store.dart';
 import '../../ui/futuristic.dart';
 
 /// Karteikarte anlegen oder bearbeiten. Beim Anlegen kann man mit
 /// „Speichern & nächste“ schnell mehrere Karten hintereinander erstellen.
 Future<void> editFlashcard(BuildContext context,
-    {String? entryId, Flashcard? card}) async {
+    {String? entryId, Flashcard? card, String? image}) async {
+  final img = image ?? card?.image;
   final study = Services.of(context).study;
   final front = TextEditingController(text: card?.front ?? '');
   final back = TextEditingController(text: card?.back ?? '');
@@ -21,12 +23,13 @@ Future<void> editFlashcard(BuildContext context,
     builder: (ctx) => StatefulBuilder(builder: (ctx, setState) {
       final mf = ctx.mf;
       bool valid() =>
-          front.text.trim().isNotEmpty && back.text.trim().isNotEmpty;
+          (front.text.trim().isNotEmpty || img != null) &&
+          back.text.trim().isNotEmpty;
       void save({required bool next}) {
         if (!valid()) return;
         if (card == null) {
           study.create(
-              front: front.text, back: back.text, entryId: entryId);
+              front: front.text, back: back.text, entryId: entryId, image: img);
           created++;
         } else {
           study.edit(card.id, front: front.text, back: back.text);
@@ -49,6 +52,10 @@ Future<void> editFlashcard(BuildContext context,
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (img != null) ...[
+                StoredImage(img, height: 140),
+                const SizedBox(height: 12),
+              ],
               Text('VORDERSEITE · FRAGE',
                   style: TextStyle(
                       fontSize: 11,
@@ -94,7 +101,7 @@ Future<void> editFlashcard(BuildContext context,
           TextButton(
               onPressed: () => Navigator.pop(ctx),
               child: Text(created > 0 ? 'Fertig' : 'Abbrechen')),
-          if (card == null)
+          if (card == null && img == null)
             OutlinedButton(
                 onPressed: valid() ? () => save(next: true) : null,
                 child: const Text('Speichern & nächste')),

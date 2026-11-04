@@ -1,92 +1,42 @@
+import 'dart:math' as math;
 import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 
+import '../app/navigation.dart';
+import '../app/services.dart';
 import '../app/theme.dart';
+import '../data/models.dart';
 import '../ink/camera.dart';
 import '../ink/ink_controller.dart';
 import 'clean_menu.dart';
 
-/// Kopfleiste im Editor (Notizbuch, Dokument, Canvas): eine schwebende
-/// „Insel“ über dem Schreibtisch – oben die Navigation, darunter die
-/// Werkzeuge. Sie liegt über, nicht auf dem Blatt: Das Blatt kann sie
-/// nie verdecken.
+/// Kopfleiste im Editor (Notizbuch, Dokument, Canvas) wie bei Goodnotes.
+/// Die Stifte liegen in einer schwebenden Unterleiste über dem Blatt.
 class EditorTopBar extends StatelessWidget {
-  const EditorTopBar({super.key, required this.nav, this.tools});
+  const EditorTopBar({super.key, required this.nav});
 
   final Widget nav;
-  final Widget? tools;
 
   @override
   Widget build(BuildContext context) {
-    final mf = context.mf;
-    return SafeArea(
-      bottom: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
-        child: Material(
-          type: MaterialType.transparency,
-          child: Container(
-            decoration: BoxDecoration(
-              color: mf.surface,
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color.lerp(mf.surface, mf.accent, mf.isDark ? 0.05 : 0.02)!,
-                  mf.surface,
-                ],
-              ),
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: mf.glassEdge),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: mf.isDark ? 0.45 : 0.10),
-                  blurRadius: 26,
-                  offset: const Offset(0, 10),
-                ),
-                BoxShadow(
-                  color: mf.glow.withValues(alpha: 0.12),
-                  blurRadius: 30,
-                  spreadRadius: -10,
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(22),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Feine Lichtkante im Markenverlauf.
-                  Container(
-                    height: 2,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [
-                        mf.accent.withValues(alpha: 0),
-                        mf.accent.withValues(alpha: 0.7),
-                        mf.accent2.withValues(alpha: 0.7),
-                        mf.accent2.withValues(alpha: 0),
-                      ]),
-                    ),
-                  ),
-                  SizedBox(height: 48, child: nav),
-                  if (tools != null) ...[
-                    Container(
-                      height: 1,
-                      margin: const EdgeInsets.symmetric(horizontal: 14),
-                      color: mf.border.withValues(alpha: 0.6),
-                    ),
-                    SizedBox(height: 58, child: tools),
-                  ],
-                ],
-              ),
-            ),
-          ),
+    // Wie Goodnotes: durchgehende, farbige Leiste mit hellen Symbolen –
+    // in hellem und dunklem Modus gleich.
+    return Theme(
+      data: buildTheme(Brightness.dark),
+      child: Material(
+        color: kEditorBarColor,
+        child: SafeArea(
+          bottom: false,
+          child: nav,
         ),
       ),
     );
   }
 }
+
+/// Farbe der Kopfleiste im Editor (Goodnotes-Blau).
+const kEditorBarColor = Color(0xFF2E4A78);
 
 /// Navigationszeile: links zurück + Titel, rechts Aktionen.
 class EditorNavBar extends StatelessWidget {
@@ -99,7 +49,15 @@ class EditorNavBar extends StatelessWidget {
     this.center,
     this.actions = const [],
     this.icon,
+    this.leading = const [],
+    this.tabId,
   });
+
+  /// Wird gesetzt, zeigt die Leiste oben die offenen Tabs (wie Goodnotes).
+  final String? tabId;
+
+  /// Knöpfe direkt nach „Zurück“ (Seitenübersicht, Lesezeichen …).
+  final List<Widget> leading;
 
   /// Kleines Symbol vor dem Titel (Notizbuch, PDF, Canvas).
   final IconData? icon;
@@ -112,16 +70,50 @@ class EditorNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final row = SizedBox(height: 54, child: _row(context));
+    final id = tabId;
+    if (id == null) return row;
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      EditorTabs(current: id),
+      row,
+    ]);
+  }
+
+  Widget _row(BuildContext context) {
     final mf = context.mf;
+    final back = NavIconButton(
+      icon: Icons.arrow_back_ios_new,
+      tooltip: 'Zurück',
+      onTap: onBack ?? () => Navigator.of(context).maybePop(),
+    );
+    // Schmale Bildschirme (iPhone, iPad hochkant): alles in einer
+    // seitlich wischbaren Reihe, ohne Titel.
+    final narrow = MediaQuery.sizeOf(context).width < 820;
+    if (narrow) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(children: [
+          back,
+          ...leading,
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
+                if (center != null) center!,
+                const SizedBox(width: 8),
+                ...actions,
+              ]),
+            ),
+          ),
+        ]),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: [
-          NavIconButton(
-            icon: Icons.arrow_back_ios_new,
-            tooltip: 'Zurück',
-            onTap: onBack ?? () => Navigator.of(context).maybePop(),
-          ),
+          back,
+          ...leading,
           const SizedBox(width: 4),
           Flexible(
             flex: 2,
@@ -382,15 +374,9 @@ class NavGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mf = context.mf;
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 3),
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        color: mf.surfaceRaised.withValues(alpha: mf.isDark ? 0.75 : 1),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: mf.glassEdge),
-      ),
+    // Flach wie bei Goodnotes – nur etwas Abstand zwischen den Gruppen.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(mainAxisSize: MainAxisSize.min, children: children),
     );
   }
@@ -517,6 +503,117 @@ class StylusToggle extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+/// Tab-Leiste wie bei Goodnotes: Startseite + offene Dokumente.
+class EditorTabs extends StatelessWidget {
+  const EditorTabs({super.key, required this.current});
+
+  final String current;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = Services.maybeOf(context);
+    if (s == null) return const SizedBox.shrink();
+    return ValueListenableBuilder<List<String>>(
+      valueListenable: s.tabs,
+      builder: (context, ids, _) {
+        final open = <MfObject>[];
+        for (final id in {...ids, current}) {
+          final o = s.objects.get(id);
+          if (o != null && o.deletedAt == null) open.add(o);
+        }
+        void close(MfObject o) {
+          final i = open.indexWhere((x) => x.id == o.id);
+          s.tabs.value = [for (final id in s.tabs.value) if (id != o.id) id];
+          if (o.id != current) return;
+          final rest = [for (final x in open) if (x.id != o.id) x];
+          if (rest.isEmpty) {
+            Navigator.of(context).maybePop();
+          } else {
+            openObject(context, rest[math.min(i, rest.length - 1)],
+                replace: true);
+          }
+        }
+
+        return Container(
+          height: 42,
+          color: Colors.black.withValues(alpha: 0.22),
+          child: Row(children: [
+            NavIconButton(
+              icon: Icons.home_outlined,
+              tooltip: 'Startseite',
+              onTap: () =>
+                  Navigator.of(context).popUntil((r) => r.isFirst),
+            ),
+            Expanded(
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (final o in open)
+                    _Tab(
+                      title: o.displayTitle,
+                      selected: o.id == current,
+                      onTap: o.id == current
+                          ? null
+                          : () => openObject(context, o, replace: true),
+                      onClose: () => close(o),
+                    ),
+                ],
+              ),
+            ),
+          ]),
+        );
+      },
+    );
+  }
+}
+
+class _Tab extends StatelessWidget {
+  const _Tab(
+      {required this.title,
+      required this.selected,
+      required this.onTap,
+      required this.onClose});
+
+  final String title;
+  final bool selected;
+  final VoidCallback? onTap;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 210,
+        margin: const EdgeInsets.only(top: 4, right: 2),
+        padding: const EdgeInsets.only(left: 14),
+        decoration: BoxDecoration(
+          color: selected ? kEditorBarColor : Colors.transparent,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        ),
+        child: Row(children: [
+          Expanded(
+            child: Text(title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    color: selected ? Colors.white : Colors.white70)),
+          ),
+          IconButton(
+            iconSize: 16,
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Tab schließen',
+            icon: const Icon(Icons.close, color: Colors.white70),
+            onPressed: onClose,
+          ),
+        ]),
+      ),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/navigation.dart';
 import '../../app/services.dart';
@@ -12,9 +13,13 @@ import '../../ink/camera.dart';
 import '../../ink/ink_controller.dart';
 import '../../ink/ink_surface.dart';
 import '../../ink/text_layer.dart';
+import '../../ink/tool_row.dart';
+import '../../storage/element_library.dart';
+import '../../storage/image_store.dart';
 import '../../storage/ink_store.dart';
 import '../../ui/clean_menu.dart';
 import '../../ui/editor_bar.dart';
+import '../../ui/find_dialog.dart';
 import '../../ui/widgets.dart';
 import '../notebook/notebook_screen.dart';
 import '../notebook/page_overview.dart';
@@ -33,6 +38,12 @@ class DocumentScreen extends StatefulWidget {
 }
 
 class _DocumentScreenState extends State<DocumentScreen> {
+  /// Seitenleiste links (bleibt für die Sitzung).
+  static bool _sidebar = false;
+
+  /// Lesemodus an?
+  bool _reading = false;
+
   late AppServices _s;
   MfObject? _doc;
   int _index = 0;
@@ -45,6 +56,9 @@ class _DocumentScreenState extends State<DocumentScreen> {
   bool _presenting = false;
   final ValueNotifier<ui.Image?> _image = ValueNotifier(null);
   bool _failed = false;
+
+  /// Links der aktuellen Seite (mit dem Finger antippen).
+  List<PdfLinkArea> _links = const [];
 
   @override
   void didChangeDependencies() {
@@ -69,6 +83,10 @@ class _DocumentScreenState extends State<DocumentScreen> {
     if (doc == null) return;
     final index = _index;
     _image.value = null;
+    _links = const [];
+    PdfService.links(doc, index, _rectFor(index).size).then((l) {
+      if (mounted && index == _index) _links = l;
+    }).ignore();
     try {
       final img = await PdfService.renderPage(doc, index, dpi: 160);
       if (!mounted || index != _index) return;
@@ -76,6 +94,20 @@ class _DocumentScreenState extends State<DocumentScreen> {
       if (img == null) setState(() => _failed = true);
     } catch (_) {
       if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  /// Link antippen: Webseite öffnen bzw. zur Seite im PDF springen.
+  void _onTap(Offset world) {
+    for (final l in _links) {
+      if (!l.rect.inflate(3).contains(world)) continue;
+      final page = l.page, url = l.url;
+      if (page != null) {
+        _goTo(page - 1);
+      } else if (url != null) {
+        launchUrl(url, mode: LaunchMode.externalApplication).ignore();
+      }
+      return;
     }
   }
 
@@ -150,6 +182,8 @@ class _DocumentScreenState extends State<DocumentScreen> {
         final img = await PdfService.renderPage(doc, i, dpi: 144);
         final strokes = await InkStore(PdfService.inkIdFor(doc, i)).load();
         final texts = _s.texts.items(PdfService.inkIdFor(doc, i));
+        await ImageStore.preload(
+            [for (final t in texts) if (t.file != null) t.file!]);
         pages.add(await renderPage(
           page: rect,
           strokes: strokes,
@@ -164,6 +198,7 @@ class _DocumentScreenState extends State<DocumentScreen> {
                   rect,
                   Paint()..filterQuality = FilterQuality.medium);
             }
+            paintPageImages(canvas, texts);
           },
         ));
       }
@@ -178,6 +213,7 @@ class _DocumentScreenState extends State<DocumentScreen> {
     final doc = _doc!;
     return EditorNavBar(
       icon: Icons.picture_as_pdf_rounded,
+      tabId: doc.id,
       title: doc.displayTitle,
       subtitle: 'PDF · ${doc.pageSizes.length} Seiten',
       onTitleTap: () async {
@@ -187,46 +223,92 @@ class _DocumentScreenState extends State<DocumentScreen> {
         _s.objects.rename(doc.id, t.trim());
         setState(() => _doc = _s.objects.get(doc.id));
       },
-      center: PagePager(
-        index: _index,
-        count: doc.pageSizes.length,
-        onPrev: () => _goTo(_index - 1),
-        onNext: () => _goTo(_index + 1),
-        onTap: _showOverview,
-      ),
+      leading: [
+        NavIconButton(
+          icon: Icons.view_sidebar_outlined,
+          tooltip: 'Seitenleiste',
+          active: _sidebar,
+          onTap: () => setState(() => _sidebar = !_sidebar),
+        ),
+        ListenableBuilder(
+          listenable: c,
+          builder: (context, _) => NavIconButton(
+            icon: c.drawingEnabled
+                ? Icons.visibility_outlined
+                : Icons.visibility_rounded,
+            tooltip: c.drawingEnabled
+                ? 'Lesemodus (nichts aus Versehen malen)'
+                : 'Lesemodus beenden',
+            active: !c.drawingEnabled,
+            onTap: () => c.setDrawingEnabled(!c.drawingEnabled),
+          ),
+        ),
+        NavIconButton(
+          icon: Icons.search_rounded,
+          tooltip: 'Im Dokument suchen (PDF-Text und deine Textfelder)',
+          onTap: () async {
+            await _surfaceKey.currentState?.flush();
+            final pdfText = await PdfService.pageTexts(doc);
+            if (!context.mounted) return;
+            await showFindDialog(context, (q) => [
+                  for (var i = 0; i < pdfText.length; i++)
+                    if (pdfText[i].toLowerCase().contains(q.toLowerCase()))
+                      (
+                        title: 'Seite ${i + 1} · im PDF',
+                        snippet: snippetOf(pdfText[i], q),
+                        open: () => _goTo(i),
+                      ),
+                  for (var i = 0; i < doc.pageSizes.length; i++)
+                    for (final t
+                        in _s.texts.items(PdfService.inkIdFor(doc, i)))
+                      if (!t.isImage &&
+                          t.text.toLowerCase().contains(q.toLowerCase()))
+                        (
+                          title: 'Seite ${i + 1}',
+                          snippet: snippetOf(t.text, q),
+                          open: () => _goTo(i),
+                        ),
+                ]);
+          },
+        ),
+      ],
+      center: ToolModeButtons(controller: c),
       actions: [
-        NavGroup(children: [
-          NavIconButton(
-            icon: Icons.grid_view_rounded,
-            tooltip: 'Seitenübersicht',
-            onTap: _showOverview,
-          ),
-        ]),
-        NavGroup(children: [UndoRedoButtons(controller: c)]),
-        NavGroup(children: [
-          ZoomPill(
-            camera: c.camera,
-            onFit: () => _surfaceKey.currentState?.fitPage(),
-            onFitWidth: () => _surfaceKey.currentState?.fitWidth(),
-          ),
-        ]),
-        NavGroup(children: [
-          ListenableBuilder(
-            listenable: c,
-            builder: (context, _) => NavIconButton(
-              icon: Icons.title_rounded,
-              tooltip: 'Textfeld (Tastatur) – dann aufs Blatt tippen',
-              active: c.tool == ToolMode.text,
-              onTap: () => c.setTool(ToolMode.text),
-            ),
-          ),
-          StylusToggle(controller: c),
-          NavIconButton(
-            icon: Icons.co_present_outlined,
-            tooltip: 'Präsentieren (nur das Blatt zeigen)',
-            onTap: () => setState(() => _presenting = true),
-          ),
-        ]),
+        PagePager(
+          index: _index,
+          count: doc.pageSizes.length,
+          onPrev: () => _goTo(_index - 1),
+          onNext: () => _goTo(_index + 1),
+          onTap: _showOverview,
+        ),
+        ZoomPill(
+          camera: c.camera,
+          onFit: () => _surfaceKey.currentState?.fitPage(),
+          onFitWidth: () => _surfaceKey.currentState?.fitWidth(),
+        ),
+        StylusToggle(controller: c),
+        CleanMenuButton(
+          tooltip: 'Bild einfügen',
+          icon: Icons.add_photo_alternate_outlined,
+          entries: const [
+            CleanMenuEntry('photo', 'Bild aus Fotos',
+                icon: Icons.photo_library_outlined),
+            CleanMenuEntry('file', 'Bild aus Dateien',
+                icon: Icons.image_outlined),
+          ],
+          onSelected: (v) => _surfaceKey.currentState
+              ?.insertImage(fromFiles: v == 'file'),
+        ),
+        NavIconButton(
+          icon: Icons.ios_share_rounded,
+          tooltip: 'Mit Notizen als PDF teilen',
+          onTap: _export,
+        ),
+        NavIconButton(
+          icon: Icons.co_present_outlined,
+          tooltip: 'Präsentieren (nur das Blatt zeigen)',
+          onTap: () => setState(() => _presenting = true),
+        ),
         EditorMoreMenu(
           entries: const [
             CleanMenuEntry('goto', 'Zu Seite springen …',
@@ -234,6 +316,11 @@ class _DocumentScreenState extends State<DocumentScreen> {
             CleanMenuEntry('knowledge', 'Wissenseintrag erstellen',
                 icon: Icons.hub_outlined,
                 subtitle: 'Mit diesem Dokument verknüpft'),
+            CleanMenuEntry('split', 'Daneben öffnen …',
+                icon: Icons.vertical_split_outlined,
+                subtitle: 'Zwei Inhalte nebeneinander'),
+            CleanMenuEntry('element', 'Element einfügen …',
+                icon: Icons.widgets_outlined),
             CleanMenuEntry.divider(),
             CleanMenuEntry('export', 'Mit Notizen als PDF teilen',
                 icon: Icons.ios_share_outlined),
@@ -250,6 +337,12 @@ class _DocumentScreenState extends State<DocumentScreen> {
               }
             }
             if (v == 'knowledge') await _createKnowledge();
+            if (v == 'split' && context.mounted) {
+              await openSplitWith(context, doc);
+            }
+            if (v == 'element' && context.mounted) {
+              await showElementPicker(context, c);
+            }
             if (v == 'export') await _export();
           },
         ),
@@ -292,7 +385,28 @@ class _DocumentScreenState extends State<DocumentScreen> {
                 presentationLabel: '${_index + 1} / ${doc.pageSizes.length}',
                 enterFrom: _enterFrom,
                 onSwipe: (d) => _goTo(_index + d),
+                // Lesemodus gilt fürs ganze Dokument, auch beim Blättern.
+                onControllerReady: (c) {
+                  c.setDrawingEnabled(!_reading);
+                  c.addListener(() => _reading = !c.drawingEnabled);
+                },
+                leftPanel: !_sidebar
+                    ? null
+                    : PageSidebar(
+                        count: doc.pageSizes.length,
+                        current: _index,
+                        onSelect: _goTo,
+                        thumbnail: (context, i) => PageThumbnail(
+                          key: ValueKey('${doc.id}-$i'),
+                          inkId: PdfService.inkIdFor(doc, i),
+                          page: _rectFor(i),
+                          paper: PaperStyle.light,
+                          background: () =>
+                              PdfService.renderPage(doc, i, dpi: 40),
+                        ),
+                      ),
                 onSaved: () => _s.objects.touch(doc.id),
+                onBackgroundTap: _onTap,
                 backgroundBuilder: (camera) =>
                     PdfPagePainter(camera: camera, image: _image, page: rect),
               ),

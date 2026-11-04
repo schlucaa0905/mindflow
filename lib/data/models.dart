@@ -16,7 +16,10 @@ enum PageTemplate {
   gridSmall('Kariert klein'),
   dotted('Punktraster'),
   cornell('Cornell'),
-  todo('Aufgaben');
+  todo('Aufgaben'),
+  music('Notenlinien'),
+  planner('Wochenplan'),
+  coords('Koordinaten');
 
   const PageTemplate(this.label);
   final String label;

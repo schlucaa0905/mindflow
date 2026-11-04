@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 
 /// Werkzeuge der Schreibfläche.
@@ -39,24 +41,47 @@ enum ShapeKind {
 /// Wo die Werkzeugleiste sitzt.
 enum ToolbarDock { top, bottom, left, right, floating }
 
-/// Ein gespeicherter Lieblingsstift.
+/// Ein gespeicherter Lieblingsstift (oder Lieblings-Textmarker).
 class PenPreset {
-  const PenPreset({required this.type, required this.color, required this.width});
+  const PenPreset(
+      {required this.type,
+      required this.color,
+      required this.width,
+      this.highlighter = false});
 
   final PenType type;
   final int color;
   final double width;
+  final bool highlighter;
 
-  Map<String, dynamic> toJson() =>
-      {'type': type.name, 'color': color, 'width': width};
+  Map<String, dynamic> toJson() => {
+        'type': type.name,
+        'color': color,
+        'width': width,
+        if (highlighter) 'hl': true,
+      };
 
   static PenPreset? fromJson(Object? j) {
     if (j is! Map) return null;
     final type = PenType.values.where((t) => t.name == j['type']).firstOrNull;
     final color = j['color'], width = j['width'];
     if (type == null || color is! int || width is! num) return null;
-    return PenPreset(type: type, color: color, width: width.toDouble());
+    return PenPreset(
+        type: type,
+        color: color,
+        width: width.toDouble(),
+        highlighter: j['hl'] == true);
   }
+}
+
+/// Winkel-Einrasten für Linien und das Drehen mit dem Lasso.
+enum AngleSnap {
+  off('Aus'),
+  right('90°'),
+  half('45° und 90°');
+
+  const AngleSnap(this.label);
+  final String label;
 }
 
 /// Standard-Paletten (je eine für dunkles und helles Papier).
@@ -96,17 +121,41 @@ class ToolSettings extends ChangeNotifier {
   EraserMode eraserMode = EraserMode.stroke;
   double eraserSize = 12;
   bool eraseHighlighterOnly = false;
-  bool eraserAutoReturn = false;
+
+  /// Nach dem Radieren automatisch zurück zum vorigen Stift.
+  bool eraserAutoReturn = true;
+
+  /// Einrasten bei geraden Winkeln (nur ganz nah dran, siehe kSnapDegrees).
+  AngleSnap angleSnap = AngleSnap.half;
+
+  /// Glättung der Handschrift: 0 = roh, 0,5 = Standard, 1 = sehr ruhig.
+  double smoothing = 0.5;
+
+  /// Druckempfindlichkeit des Stifts: 0 = hart (wenig Wirkung),
+  /// 0,5 = Standard, 1 = sehr empfindlich.
+  double pressure = 0.5;
+
+  /// Rechnet den gemessenen Druck (0–1) mit der Empfindlichkeit um.
+  double applyPressure(double p) {
+    if (pressure == 0.5) return p;
+    return math.pow(p.clamp(0.0, 1.0), math.pow(2, (0.5 - pressure) * 2.4))
+        .toDouble();
+  }
 
   ShapeKind shapeKind = ShapeKind.line;
 
   /// Schriftgröße neuer Textfelder (in Seiten-Punkten).
   double textSize = 18;
 
+  /// Füllfarbe neuer Formen (null = ohne).
+  int? shapeFill;
+
   List<int> paletteDark = List.of(kDefaultPaletteDark);
   List<int> paletteLight = List.of(kDefaultPaletteLight);
   List<int> highlighterPalette = List.of(kDefaultHighlighters);
+  /// Zuletzt benutzte eigene Farben (Stift bzw. Textmarker).
   List<int> customColors = [];
+  List<int> recentHighlighter = [];
   List<PenPreset> presets = [];
 
   /// null = noch nicht festgelegt (dann Plattform-Standard).
@@ -141,13 +190,18 @@ class ToolSettings extends ChangeNotifier {
         'eraserMode': eraserMode.name,
         'eraserSize': eraserSize,
         'eraseHighlighterOnly': eraseHighlighterOnly,
-        'eraserAutoReturn': eraserAutoReturn,
+        'eraserReturn': eraserAutoReturn,
+        'angleSnap': angleSnap.name,
+        'smoothing': smoothing,
+        'pressure': pressure,
         'shapeKind': shapeKind.name,
         'textSize': textSize,
+        'shapeFill': shapeFill,
         'paletteDark': paletteDark,
         'paletteLight': paletteLight,
         'highlighterPalette': highlighterPalette,
         'customColors': customColors,
+        'recentHighlighter': recentHighlighter,
         'presets': [for (final p in presets) p.toJson()],
         'stylusOnly': stylusOnly,
         'stylusChosenByUser': stylusChosenByUser,
@@ -197,13 +251,20 @@ class ToolSettings extends ChangeNotifier {
     s.eraserMode = pick(EraserMode.values, j['eraserMode']) ?? s.eraserMode;
     s.eraserSize = (num_(j['eraserSize']) ?? s.eraserSize).clamp(2, 60).toDouble();
     s.eraseHighlighterOnly = j['eraseHighlighterOnly'] == true;
-    s.eraserAutoReturn = j['eraserAutoReturn'] == true;
+    // Neuer Schlüssel: früher war es versteckt und aus – jetzt Standard an.
+    s.eraserAutoReturn =
+        j['eraserReturn'] is bool ? j['eraserReturn'] as bool : true;
+    s.angleSnap = pick(AngleSnap.values, j['angleSnap']) ?? s.angleSnap;
+    s.smoothing = (num_(j['smoothing']) ?? s.smoothing).clamp(0, 1).toDouble();
+    s.pressure = (num_(j['pressure']) ?? s.pressure).clamp(0, 1).toDouble();
     s.shapeKind = pick(ShapeKind.values, j['shapeKind']) ?? s.shapeKind;
     s.textSize = (num_(j['textSize']) ?? s.textSize).clamp(8, 96).toDouble();
+    s.shapeFill = j['shapeFill'] is int ? j['shapeFill'] as int : null;
     s.paletteDark = ints(j['paletteDark'], min: 1) ?? s.paletteDark;
     s.paletteLight = ints(j['paletteLight'], min: 1) ?? s.paletteLight;
     s.highlighterPalette = ints(j['highlighterPalette'], min: 1) ?? s.highlighterPalette;
     s.customColors = ints(j['customColors']) ?? s.customColors;
+    s.recentHighlighter = ints(j['recentHighlighter']) ?? s.recentHighlighter;
     final presets = j['presets'];
     if (presets is List) {
       final list = <PenPreset>[];

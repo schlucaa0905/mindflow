@@ -1,3 +1,6 @@
+import 'dart:ui' show Rect;
+
+import '../data/text_repository.dart';
 import 'ink_scene.dart';
 import 'stroke.dart';
 
@@ -46,6 +49,59 @@ class ReplaceStrokes extends InkAction {
   void revert(InkScene scene) {
     scene.setDeleted(added, true);
     scene.setDeleted(removed, false);
+  }
+}
+
+/// Textfelder und Bilder einer Seite – damit Lasso und Rückgängig sie
+/// genauso behandeln wie Striche.
+abstract class PageItems {
+  /// Alle sichtbaren Elemente.
+  List<TextItem> get all;
+
+  /// Umriss eines Elements (Text wird gemessen).
+  Rect rectOf(TextItem t);
+
+  /// Speichert [upsert] (neu, geändert oder zurückgeholt) und löscht [remove].
+  void write(List<TextItem> upsert, Set<String> remove);
+}
+
+/// Elemente geändert: vorher/nachher. Fehlt eine ID nachher, wurde sie
+/// gelöscht; fehlt sie vorher, ist sie neu.
+class ItemsChange extends InkAction {
+  ItemsChange(this.host, this.before, this.after);
+  final PageItems host;
+  final List<TextItem> before;
+  final List<TextItem> after;
+
+  void _to(List<TextItem> to, List<TextItem> from) {
+    final keep = {for (final t in to) t.id};
+    host.write([for (final t in to) t.copy()],
+        {for (final f in from) if (!keep.contains(f.id)) f.id});
+  }
+
+  @override
+  void apply(InkScene scene) => _to(after, before);
+  @override
+  void revert(InkScene scene) => _to(before, after);
+}
+
+/// Mehrere Aktionen als ein Schritt (z. B. Striche + Textfelder).
+class Combined extends InkAction {
+  Combined(this.actions);
+  final List<InkAction> actions;
+
+  @override
+  void apply(InkScene scene) {
+    for (final a in actions) {
+      a.apply(scene);
+    }
+  }
+
+  @override
+  void revert(InkScene scene) {
+    for (final a in actions.reversed) {
+      a.revert(scene);
+    }
   }
 }
 

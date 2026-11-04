@@ -50,6 +50,33 @@ Future<void> editNotebook(BuildContext context, MfObject notebook) async {
   if (draft.category.isEmpty) data.remove('category');
   repo.setData(notebook.id, data);
 
+  // Neue Vorlage: auch auf die vorhandenen Seiten anwenden?
+  if (draft.template != notebook.template && context.mounted) {
+    final all = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Neue Vorlage'),
+        content: Text('„${draft.template.label}“ für neue Seiten – und auch '
+            'für die vorhandenen Seiten? Handschrift bleibt erhalten.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Nur neue Seiten')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Alle Seiten')),
+        ],
+      ),
+    );
+    if (all == true) {
+      for (final p in repo.children(notebook.id)) {
+        if (p.type != ObjectType.page) continue;
+        repo.setData(p.id,
+            {...p.data, 'template': draft.template.name}..remove('bgImage'));
+      }
+    }
+  }
+
   // Papier von dunkel auf hell (oder umgekehrt)? Dann Schriftfarben anbieten
   // anzupassen, sonst wäre z. B. weiße Schrift auf weißem Papier unsichtbar.
   final wasDark = isDarkPaper(notebook.paper);
@@ -91,7 +118,7 @@ Future<void> offerRecolor(BuildContext context, List<String> inkIds,
     await recolorInk(id, toDark: toDark);
     // Textfelder ebenso anpassen.
     if (texts != null) {
-      for (final t in texts.items(id)) {
+      for (final t in texts.items(id).where((t) => !t.isImage)) {
         final mapped = mapInkColor(t.color, toDark: toDark);
         if (mapped != null && mapped != t.color) {
           t.color = mapped;

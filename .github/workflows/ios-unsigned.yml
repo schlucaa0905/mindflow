@@ -27,6 +27,14 @@ jobs:
             flutter create --org de.mindflow --project-name mindflow --platforms=ios .
           fi
 
+      - name: Dateien-App-Zugriff (Ordner „MindFlow“ mit den Sicherungen)
+        run: |
+          P=ios/Runner/Info.plist
+          for KEY in UIFileSharingEnabled LSSupportsOpeningDocumentsInPlace; do
+            /usr/libexec/PlistBuddy -c "Set :$KEY true" "$P" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :$KEY bool true" "$P"
+          done
+
       - name: Pakete laden
         run: flutter pub get
 

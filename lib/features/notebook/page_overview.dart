@@ -9,6 +9,7 @@ import '../../data/models.dart';
 import '../../ink/stroke.dart';
 import '../../ink/stroke_renderer.dart';
 import '../../ink/text_layer.dart';
+import '../../storage/image_store.dart';
 import '../../storage/ink_store.dart';
 import '../../ui/clean_menu.dart';
 import 'page_painter.dart';
@@ -145,13 +146,21 @@ class PageThumbnail extends StatefulWidget {
     required this.page,
     required this.paper,
     this.template = PageTemplate.blank,
+    this.image,
     this.background,
+    this.pageLabel,
   });
+
+  /// Seitenzahl auf dem Blatt (wenn im Notizbuch eingeschaltet).
+  final String? pageLabel;
 
   final String inkId;
   final Rect page;
   final PaperStyle paper;
   final PageTemplate template;
+
+  /// Eigene Vorlage (Bild), falls gesetzt.
+  final String? image;
 
   /// Lädt ein Hintergrundbild (z. B. die PDF-Seite).
   final Future<ui.Image?> Function()? background;
@@ -169,6 +178,14 @@ class _PageThumbnailState extends State<PageThumbnail> {
   void initState() {
     super.initState();
     _texts = Services.maybeOf(context)?.texts.items(widget.inkId) ?? const [];
+    ImageStore.preload([
+      for (final t in _texts)
+        if (t.file != null) t.file!,
+      if (widget.image != null) widget.image!,
+    ])
+        .then((_) {
+      if (mounted) setState(() {});
+    });
     InkStore(widget.inkId).load().then((s) {
       if (mounted) setState(() => _strokes = s);
     }).catchError((_) {});
@@ -191,6 +208,8 @@ class _PageThumbnailState extends State<PageThumbnail> {
             page: widget.page,
             paper: widget.paper,
             template: widget.template,
+            bgImage: widget.image,
+            pageLabel: widget.pageLabel,
             strokes: _strokes,
             texts: _texts,
             image: _image,
@@ -208,14 +227,19 @@ class _ThumbPainter extends CustomPainter {
     required this.template,
     required this.strokes,
     required this.texts,
+    this.bgImage,
+    this.pageLabel,
     required this.image,
   });
+
+  final String? pageLabel;
 
   final Rect page;
   final PaperStyle paper;
   final PageTemplate template;
   final List<Stroke> strokes;
   final List<TextItem> texts;
+  final String? bgImage;
   final ui.Image? image;
 
   @override
@@ -224,7 +248,8 @@ class _ThumbPainter extends CustomPainter {
     canvas.save();
     canvas.scale(s);
     canvas.translate(-page.left, -page.top);
-    paintSheet(canvas, page, paper, template, hairline: 1 / s, shadow: false);
+    paintSheet(canvas, page, paper, template,
+        hairline: 1 / s, shadow: false, image: bgImage);
     final img = image;
     if (img != null) {
       canvas.drawImageRect(
@@ -235,6 +260,7 @@ class _ThumbPainter extends CustomPainter {
       );
     }
     canvas.clipRect(page);
+    paintPageImages(canvas, texts);
     for (final st in strokes) {
       if (!st.deleted && st.tool == InkTool.highlighter) paintStroke(canvas, st);
     }
@@ -242,10 +268,92 @@ class _ThumbPainter extends CustomPainter {
       if (!st.deleted && st.tool != InkTool.highlighter) paintStroke(canvas, st);
     }
     paintTextItems(canvas, texts);
+    paintPageLabel(canvas, page, paper, pageLabel);
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(_ThumbPainter old) =>
-      old.strokes != strokes || old.image != image || old.paper != paper;
+  bool shouldRepaint(_ThumbPainter old) => true;
+}
+
+/// Seitenleiste mit Vorschauen (wie Goodnotes): antippen springt hin,
+/// lange drücken und ziehen sortiert um, „…“ öffnet das Seitenmenü.
+class PageSidebar extends StatelessWidget {
+  const PageSidebar({
+    super.key,
+    required this.count,
+    required this.current,
+    required this.thumbnail,
+    required this.onSelect,
+    this.onReorder,
+    this.menuItems,
+    this.onMenu,
+  });
+
+  final int count;
+  final int current;
+  final Widget Function(BuildContext context, int index) thumbnail;
+  final ValueChanged<int> onSelect;
+  final void Function(int from, int to)? onReorder;
+  final List<CleanMenuEntry> Function(int index)? menuItems;
+  final Future<void> Function(int index, String action)? onMenu;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    Widget item(BuildContext context, int i) => Padding(
+          key: ValueKey(i),
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+          child: Column(children: [
+            GestureDetector(
+              onTap: () => onSelect(i),
+              child: Container(
+                height: 150,
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: i == current ? mf.accent : Colors.transparent,
+                      width: 2.5),
+                ),
+                child: Center(child: thumbnail(context, i)),
+              ),
+            ),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text('${i + 1}',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight:
+                          i == current ? FontWeight.w700 : FontWeight.w400,
+                      color: i == current ? mf.accent : mf.textMuted)),
+              if (menuItems != null)
+                CleanMenuButton(
+                  size: 28,
+                  iconColor: mf.textMuted,
+                  entries: menuItems!(i),
+                  onSelected: (a) => onMenu?.call(i, a),
+                ),
+            ]),
+          ]),
+        );
+    return Container(
+      width: 150,
+      decoration: BoxDecoration(
+        color: mf.surface,
+        border: Border(right: BorderSide(color: mf.border)),
+      ),
+      child: onReorder == null
+          ? ListView.builder(itemCount: count, itemBuilder: item)
+          : ReorderableListView.builder(
+              itemCount: count,
+              buildDefaultDragHandles: false,
+              onReorder: onReorder!,
+              itemBuilder: (context, i) => ReorderableDelayedDragStartListener(
+                key: ValueKey('p$i'),
+                index: i,
+                child: item(context, i),
+              ),
+            ),
+    );
+  }
 }

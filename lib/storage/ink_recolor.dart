@@ -46,6 +46,7 @@ Future<int> recolorInk(String inkId, {required bool toDark}) async {
       tool: s.tool,
       points: s.points,
       deleted: s.deleted,
+      fill: s.fill,
     ));
   }
   if (changed > 0) await store.save(out);

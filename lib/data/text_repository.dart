@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'dart:ui' show TextAlign;
+import 'dart:ui' show Rect, TextAlign;
 import 'package:flutter/foundation.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:uuid/uuid.dart';
@@ -45,9 +45,67 @@ class TextItem {
     this.font = TextFont.sans,
     this.align = TextAlign.left,
     this.background = TextBackground.none,
+    this.lineHeight,
+    this.kind = 'text',
+    this.h = 0,
+    this.file,
   });
 
-  factory TextItem.fromRow(Row r) {
+  /// Ein eingefügtes Bild (liegt unter der Handschrift).
+  factory TextItem.image(
+          {required String id,
+          required String ownerId,
+          required double x,
+          required double y,
+          required double w,
+          required double h,
+          required String file}) =>
+      TextItem(
+          id: id,
+          ownerId: ownerId,
+          x: x,
+          y: y,
+          w: w,
+          text: '',
+          size: 18,
+          color: 0,
+          kind: 'image',
+          h: h,
+          file: file);
+
+  /// Ein Link: Fläche auf der Seite, die zu [target] führt
+  /// (`page:<Seiten-ID>` oder `obj:<Objekt-ID>`).
+  factory TextItem.link(
+          {required String id,
+          required String ownerId,
+          required Rect rect,
+          required String target}) =>
+      TextItem(
+          id: id,
+          ownerId: ownerId,
+          x: rect.left,
+          y: rect.top,
+          w: rect.width,
+          text: '',
+          size: 18,
+          color: 0,
+          kind: 'link',
+          h: rect.height,
+          file: target);
+
+  /// Gespeicherte Form (gleiche Schlüssel wie die Datenbank-Zeile).
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'owner_id': ownerId,
+        'kind': kind,
+        'x': x,
+        'y': y,
+        'w': w,
+        'h': h,
+        'data': jsonEncode(data),
+      };
+
+  factory TextItem.fromRow(Map<String, dynamic> r) {
     Map<String, dynamic> data;
     try {
       data = (jsonDecode(r['data'] as String) as Map).cast<String, dynamic>();
@@ -78,6 +136,10 @@ class TextItem {
       background: TextBackground.values.firstWhere(
           (b) => b.name == data['bg'],
           orElse: () => TextBackground.none),
+      lineHeight: data['lh'] is num ? (data['lh'] as num).toDouble() : null,
+      kind: r['kind'] as String,
+      h: (r['h'] as num).toDouble(),
+      file: data['file'] as String?,
     );
   }
 
@@ -98,6 +160,22 @@ class TextItem {
   TextAlign align;
   TextBackground background;
 
+  /// 'text', 'image' oder 'link'.
+  final String kind;
+  bool get isImage => kind == 'image';
+  bool get isLink => kind == 'link';
+  bool get isText => kind == 'text';
+
+  /// Höhe (nur Bilder; Text richtet sich nach dem Inhalt).
+  double h;
+
+  /// Bilddatei im App-Ordner (Bilder) bzw. Linkziel (Links).
+  final String? file;
+
+  /// Zeilenabstand in Seiten-Punkten, wenn der Text an den Linien bzw.
+  /// Kästchen des Papiers ausgerichtet ist (sonst null).
+  double? lineHeight;
+
   Map<String, dynamic> get data => {
         'text': text,
         'size': size,
@@ -109,6 +187,8 @@ class TextItem {
         if (align != TextAlign.left)
           'align': align == TextAlign.center ? 'center' : 'right',
         if (background != TextBackground.none) 'bg': background.name,
+        if (lineHeight != null) 'lh': lineHeight,
+        if (file != null) 'file': file,
       };
 
   TextItem copy({String? id, String? ownerId, double dx = 0, double dy = 0}) =>
@@ -127,6 +207,10 @@ class TextItem {
         font: font,
         align: align,
         background: background,
+        lineHeight: lineHeight,
+        kind: kind,
+        h: h,
+        file: file,
       );
 }
 
@@ -140,9 +224,10 @@ class TextRepository extends ChangeNotifier {
 
   int _now() => DateTime.now().millisecondsSinceEpoch;
 
+  /// Alle Textfelder und Bilder einer Seite.
   List<TextItem> items(String ownerId) => [
         for (final r in _db.select(
-            "SELECT * FROM page_items WHERE owner_id = ? AND kind = 'text' "
+            'SELECT * FROM page_items WHERE owner_id = ? '
             'AND deleted_at IS NULL ORDER BY created_at',
             [ownerId]))
           TextItem.fromRow(r)
@@ -174,28 +259,32 @@ class TextRepository extends ChangeNotifier {
     return item;
   }
 
-  void _insert(TextItem item) {
+  void _insert(TextItem item) => upsert(item);
+
+  /// Speichert ein Element – neu oder geändert, auch ein gelöschtes zurück.
+  void upsert(TextItem item) {
     final now = _now();
     _db.execute(
         'INSERT INTO page_items (id, owner_id, kind, x, y, w, h, data, '
-        "created_at, updated_at) VALUES (?, ?, 'text', ?, ?, ?, 0, ?, ?, ?)",
+        'created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+        'ON CONFLICT(id) DO UPDATE SET owner_id = excluded.owner_id, '
+        'x = excluded.x, y = excluded.y, w = excluded.w, h = excluded.h, '
+        'data = excluded.data, updated_at = excluded.updated_at, '
+        'deleted_at = NULL',
         [
-          item.id,
-          item.ownerId,
-          item.x,
-          item.y,
-          item.w,
-          jsonEncode(item.data),
-          now,
-          now
+          item.id, item.ownerId, item.kind, item.x, item.y, item.w, item.h,
+          jsonEncode(item.data), now, now
         ]);
   }
 
+  /// Neue ID für kopierte Elemente.
+  String newId() => _uuid.v4();
+
   void update(TextItem item, {bool notify = true}) {
     _db.execute(
-        'UPDATE page_items SET x = ?, y = ?, w = ?, data = ?, updated_at = ? '
-        'WHERE id = ?',
-        [item.x, item.y, item.w, jsonEncode(item.data), _now(), item.id]);
+        'UPDATE page_items SET x = ?, y = ?, w = ?, h = ?, data = ?, '
+        'updated_at = ? WHERE id = ?',
+        [item.x, item.y, item.w, item.h, jsonEncode(item.data), _now(), item.id]);
     if (notify) notifyListeners();
   }
 

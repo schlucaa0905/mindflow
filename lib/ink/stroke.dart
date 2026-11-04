@@ -4,7 +4,10 @@ import 'dart:ui';
 
 /// Werkzeug, mit dem ein Strich gezeichnet wurde.
 /// Neue Werte nur hinten anhängen – die Position wird gespeichert.
-enum InkTool { pen, highlighter, ballpoint, brush }
+/// Neue Werte nur hinten anfügen (gespeichert wird die Nummer).
+/// [shape]: perfekte Form aus dem Formen-Werkzeug – lässt sich antippen
+/// und bearbeiten.
+enum InkTool { pen, highlighter, ballpoint, brush, shape }
 
 /// Ein einzelner Strich – reine Daten, keine Rendering-Objekte.
 ///
@@ -19,6 +22,7 @@ class Stroke {
     required this.tool,
     required this.points,
     this.deleted = false,
+    this.fill,
   })  : assert(points.length % 3 == 0, 'points = x,y,druck-Tripel'),
         bounds = computeBounds(points, width);
 
@@ -38,6 +42,9 @@ class Stroke {
   final Float32List points;
 
   bool deleted;
+
+  /// Füllfarbe einer geschlossenen Form (ARGB) oder null.
+  final int? fill;
 
   /// Umschließendes Rechteck inklusive Strichbreite.
   final Rect bounds;

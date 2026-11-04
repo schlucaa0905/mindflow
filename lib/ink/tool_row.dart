@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
+import '../storage/element_library.dart';
 import '../ui/color_picker.dart';
 import 'ink_controller.dart';
 import 'ink_toolbar.dart';
@@ -11,11 +12,8 @@ import 'tool_glyphs.dart';
 const _textSizes = [14.0, 18.0, 26.0, 36.0];
 const _textSizeLabels = ['S', 'M', 'L', 'XL'];
 
-/// Moderne Werkzeugzeile im Goodnotes-Stil – fest unter der Kopfleiste.
-///
-/// Mitte: die Werkzeuge in einer Kapsel. Rechts daneben: was zum gewählten
-/// Werkzeug passt (Farben, Strichstärken, Lieblingsstifte, Radierer-Art …).
-/// Ein gewähltes Werkzeug nochmal antippen öffnet alle Optionen.
+/// Schwebende Unterleiste wie bei Goodnotes: links Rückgängig/Wiederholen,
+/// rechts was zum gewählten Modus gehört (Stifte, Stärken, Farben …).
 class ToolRow extends StatelessWidget {
   const ToolRow({super.key, required this.controller});
 
@@ -27,24 +25,47 @@ class ToolRow extends StatelessWidget {
       listenable: controller,
       builder: (context, _) {
         final c = controller;
-        return LayoutBuilder(builder: (context, constraints) {
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: ConstrainedBox(
-              constraints:
-                  BoxConstraints(minWidth: math.max(0.0, constraints.maxWidth - 24)),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _ToolCapsule(c: c),
-                  const SizedBox(width: 14),
-                  ..._context(context, c),
-                ],
+        // Lesemodus: nur ein Hinweis mit Knopf zum Weiterschreiben.
+        if (!c.drawingEnabled) {
+          return Center(
+            child: _Floating(children: [
+              const SizedBox(width: 10),
+              Icon(Icons.visibility_outlined, color: context.mf.textMuted),
+              const SizedBox(width: 8),
+              Text('Lesemodus',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600, color: context.mf.text)),
+              const SizedBox(width: 12),
+              TextButton(
+                onPressed: () => c.setDrawingEnabled(true),
+                child: const Text('Schreiben'),
               ),
-            ),
+            ]),
           );
-        });
+        }
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _Floating(children: [
+                _RoundIcon(
+                    icon: Icons.undo_rounded,
+                    tooltip: 'Rückgängig',
+                    flat: true,
+                    onTap: c.history.canUndo ? c.undo : null),
+                _RoundIcon(
+                    icon: Icons.redo_rounded,
+                    tooltip: 'Wiederholen',
+                    flat: true,
+                    onTap: c.history.canRedo ? c.redo : null),
+              ]),
+              const SizedBox(width: 6),
+              _Floating(children: _context(context, c)),
+            ],
+          ),
+        );
       },
     );
   }
@@ -55,7 +76,25 @@ class ToolRow extends StatelessWidget {
       case ToolMode.pen:
       case ToolMode.highlighter:
       case ToolMode.shape:
-        return _colorsAndWidth(context, c);
+        return [
+          _PenGroup(c: c),
+          if (c.tool != ToolMode.shape) ...[
+            const _Divider(),
+            _Favorites(c: c),
+          ],
+          const _Divider(),
+          ..._colorsAndWidth(context, c),
+          if (c.tool == ToolMode.shape) _FillButton(c: c),
+          const _Divider(),
+          _Toggle(
+            icon: Icons.straighten_rounded,
+            tooltip: c.ruler.value == null
+                ? 'Lineal einblenden (mit Fingern verschieben/drehen)'
+                : 'Lineal ausblenden',
+            on: c.ruler.value != null,
+            onTap: c.toggleRuler,
+          ),
+        ];
       case ToolMode.eraser:
         return [
           _Capsule(children: [
@@ -75,10 +114,30 @@ class ToolRow extends StatelessWidget {
                 onTap: () => c.setEraserSize(s),
               ),
           ]),
+          const _Divider(),
+          _Toggle(
+            icon: Icons.u_turn_left_rounded,
+            label: 'Danach Stift',
+            tooltip: c.settings.eraserAutoReturn
+                ? 'An: Nach dem Radieren (Stift hochnehmen) geht es '
+                    'automatisch mit dem vorigen Stift weiter'
+                : 'Aus: Der Radierer bleibt gewählt',
+            on: c.settings.eraserAutoReturn,
+            onTap: () => c.settings.update(() => c.settings.eraserAutoReturn =
+                !c.settings.eraserAutoReturn),
+          ),
+          _Toggle(
+            icon: Icons.border_color_outlined,
+            label: 'Nur Marker',
+            tooltip: 'Nur Textmarker radieren – die Schrift bleibt stehen',
+            on: c.settings.eraseHighlighterOnly,
+            onTap: () => c.settings.update(() => c.settings
+                .eraseHighlighterOnly = !c.settings.eraseHighlighterOnly),
+          ),
         ];
       case ToolMode.lasso:
         return [
-          if (c.selection.isNotEmpty)
+          if (c.hasSelection)
             ..._colorsAndWidth(context, c, colorsOnly: true)
           else
               Text(
@@ -90,6 +149,14 @@ class ToolRow extends StatelessWidget {
             const SizedBox(width: 10),
             _PasteChip(onTap: () => c.paste()),
           ],
+          const SizedBox(width: 6),
+          _Toggle(
+            icon: Icons.widgets_outlined,
+            label: 'Elemente',
+            tooltip: 'Gespeichertes Element einfügen (eigene Bibliothek)',
+            on: false,
+            onTap: () => showElementPicker(context, c),
+          ),
         ];
       case ToolMode.text:
         return [
@@ -122,18 +189,14 @@ class ToolRow extends StatelessWidget {
     final active = hl ? c.highlighterColor : c.penColor;
     final widths = c.widthSlots;
     return [
-      if (!colorsOnly && c.tool == ToolMode.pen && c.settings.presets.isNotEmpty) ...[
-        _Capsule(children: [
-          for (final p in c.settings.presets)
-            PresetButton(preset: p, controller: c),
-        ]),
-        const SizedBox(width: 10),
-      ],
+      if (!colorsOnly)
+        for (var i = 0; i < widths.length; i++)
+          _WidthSlot(c: c, index: i, highlighter: hl),
       _Capsule(children: [
-        for (var i = 0; i < palette.length; i++)
+        for (var i = 0; i < math.min(3, palette.length); i++)
           _ColorCircle(
             color: palette[i],
-            selected: c.selection.isEmpty &&
+            selected: !c.hasSelection &&
                 palette[i].toARGB32() == active.toARGB32(),
             onTap: () => c.setColor(palette[i]),
             onLongPress: () async {
@@ -143,36 +206,40 @@ class ToolRow extends StatelessWidget {
               }
             },
           ),
-        if (!hl)
-          for (final color in c.customColors.take(3))
+        // Zuletzt benutzte Farben (eigene, Pipette, Favoriten).
+        if (c.recentColors.isNotEmpty) ...[
+          Container(
+              width: 1,
+              height: 20,
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              color: context.mf.border),
+          for (final color in c.recentColors.take(4))
             _ColorCircle(
               color: color,
-              selected: c.selection.isEmpty &&
+              selected: !c.hasSelection &&
                   color.toARGB32() == active.toARGB32(),
               onTap: () => c.setColor(color),
             ),
+        ],
+        _RoundIcon(
+          icon: Icons.colorize_rounded,
+          tooltip: c.picking
+              ? 'Pipette: tippe auf eine Stelle (nochmal: abbrechen)'
+              : 'Pipette – Farbe von der Seite aufnehmen',
+          small: true,
+          active: c.picking,
+          onTap: () => c.setPicking(!c.picking),
+        ),
         _RoundIcon(
           icon: Icons.add,
           tooltip: 'Eigene Farbe (Farbe lange drücken: Palette ändern)',
           small: true,
           onTap: () async {
             final picked = await pickColor(context, active);
-            if (picked == null) return;
-            if (hl) {
-              c.setColor(picked);
-            } else {
-              c.addCustomColor(picked);
-            }
+            if (picked != null) c.setColor(picked);
           },
         ),
       ]),
-      if (!colorsOnly) ...[
-        const SizedBox(width: 10),
-        _Capsule(children: [
-          for (var i = 0; i < widths.length; i++)
-            _WidthSlot(c: c, index: i, highlighter: hl),
-        ]),
-      ],
     ];
   }
 }
@@ -258,8 +325,8 @@ class _WidthSlot extends StatelessWidget {
         message: selected
             ? 'Nochmal tippen: Stärke genau einstellen'
             : 'Strichstärke ${w.toStringAsFixed(1)}',
-        child: _SizeDot(
-          size: highlighter ? w / 2.5 : 3 + w * 1.8,
+        child: _WidthBar(
+          thickness: (highlighter ? w / 3 : 1.5 + w * 0.9).clamp(1.5, 9.0).toDouble(),
           selected: selected,
           onTap: () {
             if (!selected) {
@@ -276,29 +343,32 @@ class _WidthSlot extends StatelessWidget {
   }
 }
 
-/// Kapsel mit allen Werkzeugen.
-class _ToolCapsule extends StatelessWidget {
-  const _ToolCapsule({required this.c});
+/// Die Schreibwerkzeuge wie bei Goodnotes: drei Stifte, Textmarker, Formen.
+class _PenGroup extends StatelessWidget {
+  const _PenGroup({required this.c});
   final InkController c;
 
   @override
   Widget build(BuildContext context) {
-    final pen = switch (c.penType) {
-      PenType.fountain => GlyphKind.fountain,
-      PenType.ballpoint => GlyphKind.ballpoint,
-      PenType.brush => GlyphKind.brush,
-    };
-    return _Capsule(
-      padding: 3,
-      children: [
-        _ToolItem(
+    Widget pen(PenType t, GlyphKind g) => _ToolItem(
           c: c,
           tool: ToolMode.pen,
-          glyph: pen,
+          glyph: g,
           tip: c.penColor,
-          label: '${c.penType.label} (P)',
+          label: '${t.label} (P)',
+          isSelected: c.tool == ToolMode.pen && c.penType == t,
+          select: () {
+            c.setTool(ToolMode.pen);
+            c.setPenType(t);
+          },
           menu: (_) => PenOptions(c),
-        ),
+        );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        pen(PenType.fountain, GlyphKind.fountain),
+        pen(PenType.ballpoint, GlyphKind.ballpoint),
+        pen(PenType.brush, GlyphKind.brush),
         _ToolItem(
           c: c,
           tool: ToolMode.highlighter,
@@ -309,40 +379,11 @@ class _ToolCapsule extends StatelessWidget {
         ),
         _ToolItem(
           c: c,
-          tool: ToolMode.eraser,
-          glyph: GlyphKind.eraser,
-          tip: c.penColor,
-          label: 'Radierer (E)',
-          menu: (_) => EraserOptions(c),
-        ),
-        _ToolItem(
-          c: c,
-          tool: ToolMode.lasso,
-          glyph: GlyphKind.lasso,
-          tip: c.penColor,
-          label: 'Lasso (L)',
-        ),
-        _ToolItem(
-          c: c,
-          tool: ToolMode.text,
-          glyph: GlyphKind.text,
-          tip: c.penColor,
-          label: 'Text mit Tastatur (T)',
-        ),
-        _ToolItem(
-          c: c,
           tool: ToolMode.shape,
           glyph: GlyphKind.shape,
           tip: context.mf.accent,
           label: 'Formen (S)',
           menu: (_) => ShapeOptions(c),
-        ),
-        _ToolItem(
-          c: c,
-          tool: ToolMode.laser,
-          glyph: GlyphKind.laser,
-          tip: const Color(0xFFFF453A),
-          label: 'Laserpointer (R)',
         ),
       ],
     );
@@ -359,8 +400,12 @@ class _ToolItem extends StatelessWidget {
     required this.tip,
     required this.label,
     this.menu,
+    this.isSelected,
+    this.select,
   });
 
+  final bool? isSelected;
+  final VoidCallback? select;
   final InkController c;
   final ToolMode tool;
   final GlyphKind glyph;
@@ -371,52 +416,47 @@ class _ToolItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mf = context.mf;
-    final selected = c.tool == tool;
+    final selected = isSelected ?? c.tool == tool;
+    final choose = select ?? () => c.setTool(tool);
     final dark = Theme.of(context).brightness == Brightness.dark;
     Widget button(VoidCallback onTap) => Tooltip(
           message: menu == null ? label : '$label – nochmal tippen: Optionen',
           child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: onTap,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               curve: Curves.easeOut,
-              width: 44,
-              height: 46,
-              margin: const EdgeInsets.symmetric(horizontal: 1),
+              height: 42,
+              padding: EdgeInsets.only(left: 8, right: selected && menu != null ? 2 : 8),
+              margin: const EdgeInsets.symmetric(horizontal: 2),
               decoration: BoxDecoration(
-                gradient: selected
-                    ? LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          mf.accent.withValues(alpha: 0.30),
-                          mf.accent2.withValues(alpha: 0.10),
-                        ],
-                      )
-                    : null,
-                borderRadius: BorderRadius.circular(13),
-                border: Border.all(
-                    color: selected
-                        ? mf.accent.withValues(alpha: 0.45)
-                        : Colors.transparent),
-                boxShadow: selected
-                    ? [BoxShadow(color: mf.glow, blurRadius: 14, spreadRadius: -6)]
-                    : null,
+                color: selected ? _kSelected : null,
+                borderRadius: BorderRadius.circular(12),
               ),
-              alignment: Alignment.bottomCenter,
-              child: ToolGlyph(
-                kind: glyph,
-                tip: tip,
-                body: dark ? const Color(0xFFE6E6EE) : const Color(0xFF2A2A33),
-                outline: mf.text,
-                selected: selected,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ToolGlyph(
+                    kind: glyph,
+                    tip: tip,
+                    body: dark || selected
+                        ? const Color(0xFFE6E6EE)
+                        : const Color(0xFF2A2A33),
+                    outline: selected ? Colors.white : mf.text,
+                    selected: false,
+                  ),
+                  if (selected && menu != null)
+                    const Icon(Icons.expand_more_rounded,
+                        size: 16, color: Colors.white),
+                ],
               ),
             ),
           ),
         );
 
     final m = menu;
-    if (m == null) return button(() => c.setTool(tool));
+    if (m == null) return button(choose);
     return MenuAnchor(
       alignmentOffset: const Offset(0, 8),
       style: MenuStyle(
@@ -437,7 +477,7 @@ class _ToolItem extends StatelessWidget {
       ],
       builder: (context, ctrl, _) => button(() {
         if (!selected) {
-          c.setTool(tool);
+          choose();
         } else if (ctrl.isOpen) {
           ctrl.close();
         } else {
@@ -456,14 +496,8 @@ class _Capsule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mf = context.mf;
-    return Container(
+    return Padding(
       padding: EdgeInsets.all(padding),
-      decoration: BoxDecoration(
-        color: mf.surfaceRaised.withValues(alpha: mf.isDark ? 0.7 : 1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: mf.glassEdge),
-      ),
       child: Row(mainAxisSize: MainAxisSize.min, children: children),
     );
   }
@@ -589,17 +623,25 @@ class _RoundIcon extends StatelessWidget {
       {required this.icon,
       required this.tooltip,
       this.onTap,
-      this.small = false});
+      this.small = false,
+      this.flat = false,
+      this.active = false});
 
   final IconData icon;
   final String tooltip;
   final VoidCallback? onTap;
   final bool small;
 
+  /// Eingeschaltet (z. B. Pipette aktiv): farbig hinterlegt.
+  final bool active;
+
+  /// Ohne Rand (Rückgängig/Wiederholen in der schwebenden Leiste).
+  final bool flat;
+
   @override
   Widget build(BuildContext context) {
     final mf = context.mf;
-    final d = small ? 30.0 : 38.0;
+    final d = flat ? 44.0 : (small ? 30.0 : 38.0);
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -609,12 +651,24 @@ class _RoundIcon extends StatelessWidget {
           width: d,
           height: d,
           margin: const EdgeInsets.symmetric(horizontal: 2),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: small ? Colors.transparent : mf.surfaceRaised,
-            border: Border.all(color: mf.border),
-          ),
-          child: Icon(icon, size: small ? 16 : 18, color: mf.text),
+          decoration: flat
+              ? null
+              : BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: active
+                      ? _kSelected
+                      : small
+                          ? Colors.transparent
+                          : mf.surfaceRaised,
+                  border: Border.all(color: active ? _kSelected : mf.border),
+                ),
+          child: Icon(icon,
+              size: flat ? 24 : (small ? 16 : 18),
+              color: onTap == null
+                  ? mf.textMuted.withValues(alpha: 0.4)
+                  : active
+                      ? Colors.white
+                      : mf.text),
         ),
       ),
     );
@@ -659,5 +713,296 @@ class _PasteChip extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Hintergrund des gewählten Stifts (Goodnotes: Petrol).
+const _kSelected = Color(0xFF3F8792);
+
+/// Schwebende, abgerundete Kapsel über dem Blatt.
+class _Floating extends StatelessWidget {
+  const _Floating({required this.children});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    return Container(
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: mf.isDark ? const Color(0xFF2A2A2D) : Colors.white,
+        borderRadius: BorderRadius.circular(27),
+        border: Border.all(
+            color: mf.isDark ? const Color(0xFF3C3C40) : const Color(0xFFDADCE3)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x33000000), blurRadius: 16, offset: Offset(0, 6)),
+        ],
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: children),
+    );
+  }
+}
+
+class _Divider extends StatelessWidget {
+  const _Divider();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 1,
+        height: 30,
+        margin: const EdgeInsets.symmetric(horizontal: 8),
+        color: context.mf.border,
+      );
+}
+
+/// Strichstärke als Linie (wie bei Goodnotes).
+class _WidthBar extends StatelessWidget {
+  const _WidthBar(
+      {required this.thickness, required this.selected, required this.onTap});
+
+  final double thickness;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        width: 50,
+        height: 42,
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        decoration: BoxDecoration(
+          color: selected ? mf.text.withValues(alpha: 0.14) : null,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        alignment: Alignment.center,
+        child: Container(
+          width: 22,
+          height: thickness,
+          decoration: BoxDecoration(
+            color: mf.text,
+            borderRadius: BorderRadius.circular(thickness),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Die Modus-Knöpfe in der Kopfleiste wie bei Goodnotes:
+/// Lasso | Schreiben, Radierer, Text, ⌄ (Laser).
+class ToolModeButtons extends StatelessWidget {
+  const ToolModeButtons({super.key, required this.controller});
+
+  final InkController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    return ListenableBuilder(
+      listenable: c,
+      builder: (context, _) {
+        Widget b(IconData icon, String tip, bool on, VoidCallback tap) =>
+            Tooltip(
+              message: tip,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: tap,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  width: 44,
+                  height: 38,
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  decoration: BoxDecoration(
+                    color: on ? const Color(0xFFD5DCE8) : null,
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Icon(icon,
+                      size: 23,
+                      color: on ? const Color(0xFF1E2A44) : Colors.white),
+                ),
+              ),
+            );
+        final t = c.tool;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            b(Icons.highlight_alt_rounded, 'Lasso (L)', t == ToolMode.lasso,
+                () => c.setTool(ToolMode.lasso)),
+            Container(
+                width: 1,
+                height: 24,
+                margin: const EdgeInsets.symmetric(horizontal: 6),
+                color: Colors.white24),
+            b(Icons.edit_outlined, 'Schreiben (P)',
+                InkController.isWriteTool(t), () => c.setTool(c.lastWriteTool)),
+            b(Icons.ink_eraser_outlined, 'Radierer (E)', t == ToolMode.eraser,
+                () => c.setTool(ToolMode.eraser)),
+            b(Icons.title_rounded, 'Textfeld (T)', t == ToolMode.text,
+                () => c.setTool(ToolMode.text)),
+            Tooltip(
+              message: 'Laserpointer (R)',
+              child: GestureDetector(
+                onTap: () => c.setTool(ToolMode.laser),
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: t == ToolMode.laser
+                        ? const Color(0xFFD5DCE8)
+                        : Colors.white24,
+                  ),
+                  child: Icon(Icons.flare_rounded,
+                      size: 18,
+                      color: t == ToolMode.laser
+                          ? const Color(0xFF1E2A44)
+                          : Colors.white),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Füllfarbe für Formen (wie Goodnotes): ohne oder eine zarte Farbe.
+class _FillButton extends StatelessWidget {
+  const _FillButton({required this.c});
+  final InkController c;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    final current = c.editShape?.fill ?? c.settings.shapeFill;
+    final colors = <int?>[
+      null,
+      for (final col in [...c.palette, ...c.highlighterPalette])
+        col.withAlpha(0x66).toARGB32(),
+    ];
+    return MenuAnchor(
+      menuChildren: [
+        Padding(
+          padding: const EdgeInsets.all(10),
+          child: SizedBox(
+            width: 210,
+            child: Wrap(children: [
+              for (final f in colors)
+                GestureDetector(
+                  onTap: () => c.setShapeFill(f),
+                  child: Container(
+                    width: 34,
+                    height: 34,
+                    margin: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: f == null ? null : Color(f),
+                      border: Border.all(
+                          color: f == current ? mf.accent : mf.border,
+                          width: f == current ? 2.5 : 1),
+                    ),
+                    child: f == null
+                        ? Icon(Icons.block, size: 16, color: mf.textMuted)
+                        : null,
+                  ),
+                ),
+            ]),
+          ),
+        ),
+      ],
+      builder: (context, menu, _) => Tooltip(
+        message: 'Füllung',
+        child: InkWell(
+          onTap: () => menu.isOpen ? menu.close() : menu.open(),
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: 42,
+            height: 42,
+            child: Icon(Icons.format_color_fill_rounded,
+                color: current == null ? mf.text : Color(current).withAlpha(255)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Ein-/Aus-Knopf in der Unterleiste (z. B. Lineal), optional mit Text.
+class _Toggle extends StatelessWidget {
+  const _Toggle(
+      {required this.icon,
+      required this.tooltip,
+      required this.on,
+      required this.onTap,
+      this.label});
+
+  final IconData icon;
+  final String tooltip;
+  final bool on;
+  final VoidCallback onTap;
+  final String? label;
+
+  @override
+  Widget build(BuildContext context) {
+    final mf = context.mf;
+    final fg = on ? Colors.white : mf.text;
+    final text = label;
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          height: 42,
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: on ? _kSelected : null,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, color: fg, size: 22),
+            if (text != null) ...[
+              const SizedBox(width: 6),
+              Text(text,
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
+            ],
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// Lieblingsstifte (wie Goodnotes-Favoriten): antippen wählt Stift, Farbe
+/// und Stärke auf einmal; der Stern speichert den aktuellen Stift.
+class _Favorites extends StatelessWidget {
+  const _Favorites({required this.c});
+  final InkController c;
+
+  @override
+  Widget build(BuildContext context) {
+    final presets = c.settings.presets;
+    final current = presets.any(c.isActivePreset);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      for (final p in presets) PresetButton(preset: p, controller: c),
+      _RoundIcon(
+        icon: current ? Icons.star_rounded : Icons.star_outline_rounded,
+        tooltip: current
+            ? 'Ist ein Favorit (Favorit lange drücken: entfernen)'
+            : 'Aktuellen Stift als Favorit speichern',
+        small: true,
+        onTap: current ? null : c.saveCurrentAsPreset,
+      ),
+    ]);
   }
 }

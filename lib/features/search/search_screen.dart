@@ -6,7 +6,9 @@ import '../../app/theme.dart';
 import '../../data/models.dart';
 import '../../ui/widgets.dart';
 import '../common/object_info.dart';
+import '../../ui/find_dialog.dart';
 import '../documents/document_screen.dart';
+import '../documents/pdf_service.dart';
 
 /// SEARCH – globale Suche. Ergebnisse führen direkt zum Inhalt.
 ///
@@ -24,6 +26,32 @@ class _SearchScreenState extends State<SearchScreen> {
   final _ctrl = TextEditingController();
   String _q = '';
 
+  /// Gedruckter Text aller PDFs (wird im Hintergrund geladen).
+  final Map<MfObject, List<String>> _pdf = {};
+  bool _pdfLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadPdfTexts());
+  }
+
+  Future<void> _loadPdfTexts() async {
+    if (!mounted) return;
+    final docs = Services.of(context)
+        .objects
+        .byType(ObjectType.document)
+        .where((d) => d.deletedAt == null)
+        .toList();
+    for (final d in docs) {
+      try {
+        _pdf[d] = await PdfService.pageTexts(d);
+      } catch (_) {}
+      if (!mounted) return;
+    }
+    setState(() => _pdfLoading = false);
+  }
+
   @override
   void dispose() {
     _ctrl.dispose();
@@ -37,6 +65,15 @@ class _SearchScreenState extends State<SearchScreen> {
     final objects = s.objects.search(_q);
     final nodes = s.canvas.searchNodes(_q);
     final texts = s.texts.search(_q);
+    final ql = _q.trim().toLowerCase();
+    final pdfHits = ql.isEmpty
+        ? const <({MfObject doc, int page, String text})>[]
+        : [
+            for (final e in _pdf.entries)
+              for (var i = 0; i < e.value.length; i++)
+                if (e.value[i].toLowerCase().contains(ql))
+                  (doc: e.key, page: i, text: e.value[i]),
+          ].take(60).toList();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
@@ -55,8 +92,15 @@ class _SearchScreenState extends State<SearchScreen> {
         if (_q.trim().isEmpty)
           Text('Tippe einen Suchbegriff ein.',
               style: TextStyle(color: mf.textMuted))
-        else if (objects.isEmpty && nodes.isEmpty && texts.isEmpty)
-          Text('Keine Treffer für „${_q.trim()}“.',
+        else if (objects.isEmpty &&
+            nodes.isEmpty &&
+            texts.isEmpty &&
+            pdfHits.isEmpty)
+          Text(
+              _pdfLoading
+                  ? 'Keine Treffer für „${_q.trim()}“ – PDFs werden noch '
+                      'durchsucht …'
+                  : 'Keine Treffer für „${_q.trim()}“.',
               style: TextStyle(color: mf.textMuted))
         else ...[
           for (final o in objects)
@@ -85,6 +129,21 @@ class _SearchScreenState extends State<SearchScreen> {
                     : () => openObject(context, board, focusNodeId: n.id),
               );
             }),
+          for (final h in pdfHits)
+            _ResultTile(
+              icon: Icons.picture_as_pdf_outlined,
+              title: snippetOf(h.text, _q.trim()),
+              subtitle: 'Seite ${h.page + 1} · ${h.doc.displayTitle}',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) =>
+                      DocumentScreen(documentId: h.doc.id, initialPage: h.page))),
+            ),
+          if (_pdfLoading && _q.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text('PDFs werden durchsucht …',
+                  style: TextStyle(fontSize: 12.5, color: mf.textMuted)),
+            ),
           for (final t in texts)
             Builder(builder: (context) {
               final target = _textOwner(s, t.ownerId);

@@ -1,11 +1,18 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../app/services.dart';
 import '../app/theme.dart';
+import '../data/text_repository.dart';
+import '../features/common/links.dart';
+import '../features/study/card_editor.dart';
+import '../storage/image_store.dart';
 import '../storage/ink_store.dart';
+import 'stroke_renderer.dart';
 import '../ui/editor_bar.dart';
 import 'camera.dart';
 import 'ink_canvas_view.dart';
@@ -39,7 +46,23 @@ class InkSurface extends StatefulWidget {
     this.onSaved,
     this.onControllerReady,
     this.onBackgroundTap,
+    this.textGrid,
+    this.leftPanel,
+    this.linkNotebookId,
+    this.onOpenLink,
   });
+
+  /// Notizbuch, dessen Seiten als Linkziel angeboten werden.
+  final String? linkNotebookId;
+
+  /// Link öffnen (Standard: Seite bzw. Inhalt öffnen).
+  final ValueChanged<String>? onOpenLink;
+
+  /// Seitenleiste links unter der Kopfleiste (z. B. Seitenvorschauen).
+  final Widget? leftPanel;
+
+  /// Linien/Kästchen des Papiers, an denen Textfelder ausgerichtet werden.
+  final TextLineGrid? textGrid;
 
   /// ID des Objekts, dessen Handschrift gezeigt wird.
   final String inkId;
@@ -114,6 +137,82 @@ class InkSurfaceState extends State<InkSurface>
     widget.onControllerReady?.call(controller);
     if (widget.enterFrom != 0) _enter.forward();
     if (widget.presenting) _applySystemUi(true);
+  }
+
+  /// Bild einfügen (Fotos oder Dateien).
+  Future<void> insertImage({bool fromFiles = false}) async =>
+      _textKey.currentState?.insertImage(fromFiles: fromFiles);
+
+  /// Lasso-Auswahl als Bild auf die Vorderseite einer Karteikarte.
+  Future<void> selectionToCard() async {
+    final c = controller;
+    final b = c.selectionBounds;
+    final items = c.items;
+    if (b == null) return;
+    final r = b.inflate(12);
+    const scale = 2.0;
+    final rec = ui.PictureRecorder();
+    final canvas = Canvas(rec)
+      ..scale(scale)
+      ..translate(-r.left, -r.top)
+      ..drawRect(r, Paint()..color = PaperStyle.of(widget.paper).sheet);
+    final sel = [
+      if (items != null)
+        for (final t in items.all)
+          if (c.selectedItems.contains(t.id)) t
+    ];
+    await ImageStore.preload([for (final t in sel) if (t.file != null) t.file!]);
+    paintPageImages(canvas, sel);
+    for (final s in c.selection) {
+      paintStroke(canvas, s);
+    }
+    paintTextItems(canvas, sel);
+    final img = await rec
+        .endRecording()
+        .toImage((r.width * scale).round(), (r.height * scale).round());
+    final png = await img.toByteData(format: ui.ImageByteFormat.png);
+    img.dispose();
+    if (png == null || !mounted) return;
+    final name = await ImageStore.save(png.buffer.asUint8List(), 'png');
+    if (!mounted) return;
+    await editFlashcard(context, image: name);
+  }
+
+  /// Lasso-Auswahl zum Link machen (Fläche um die Auswahl).
+  Future<void> linkSelection() async {
+    final c = controller;
+    final b = c.selectionBounds;
+    final repo = Services.maybeOf(context)?.texts;
+    if (b == null || repo == null) return;
+    final target =
+        await pickLinkTarget(context, notebookId: widget.linkNotebookId);
+    if (target == null || !mounted) return;
+    c.insertItems([
+      TextItem.link(
+          id: repo.newId(),
+          ownerId: widget.inkId,
+          rect: b.inflate(4),
+          target: target)
+    ]);
+  }
+
+  void _openLink(String target) {
+    final open = widget.onOpenLink;
+    if (open != null) {
+      open(target);
+    } else {
+      openLinkTarget(context, target);
+    }
+  }
+
+  final GlobalKey _contentKey = GlobalKey();
+
+  /// Bild der Fläche ohne Leisten (Seite, Handschrift, Text, Karten) –
+  /// z. B. für den Export des Canvas.
+  Future<ui.Image?> captureContent({double pixelRatio = 2}) async {
+    final ro = _contentKey.currentContext?.findRenderObject();
+    if (ro is! RenderRepaintBoundary) return null;
+    return ro.toImage(pixelRatio: pixelRatio);
   }
 
   /// Sofort speichern (z. B. vor dem Duplizieren einer Seite).
@@ -252,14 +351,14 @@ class InkSurfaceState extends State<InkSurface>
         }
       } else if (key == LogicalKeyboardKey.keyY) {
         c.redo();
-      } else if (key == LogicalKeyboardKey.keyC && c.selection.isNotEmpty) {
+      } else if (key == LogicalKeyboardKey.keyC && c.hasSelection) {
         c.copySelection();
-      } else if (key == LogicalKeyboardKey.keyX && c.selection.isNotEmpty) {
+      } else if (key == LogicalKeyboardKey.keyX && c.hasSelection) {
         c.cutSelection();
       } else if (key == LogicalKeyboardKey.keyV && c.canPaste &&
           c.drawingEnabled) {
         c.paste();
-      } else if (key == LogicalKeyboardKey.keyD && c.selection.isNotEmpty) {
+      } else if (key == LogicalKeyboardKey.keyD && c.hasSelection) {
         c.duplicateSelection();
       } else {
         return KeyEventResult.ignored;
@@ -267,13 +366,19 @@ class InkSurfaceState extends State<InkSurface>
       return KeyEventResult.handled;
     }
 
-    if (c.selection.isNotEmpty &&
+    if (c.editShape != null &&
+        (key == LogicalKeyboardKey.delete ||
+            key == LogicalKeyboardKey.backspace)) {
+      c.deleteEditShape();
+      return KeyEventResult.handled;
+    }
+    if (c.hasSelection &&
         (key == LogicalKeyboardKey.delete ||
             key == LogicalKeyboardKey.backspace)) {
       c.deleteSelection();
       return KeyEventResult.handled;
     }
-    if (c.selection.isNotEmpty && key == LogicalKeyboardKey.escape) {
+    if (c.hasSelection && key == LogicalKeyboardKey.escape) {
       c.clearSelection();
       return KeyEventResult.handled;
     }
@@ -298,17 +403,18 @@ class InkSurfaceState extends State<InkSurface>
           Builder(builder: (context) {
             if (widget.presenting) return const SizedBox.shrink();
             final nav = widget.navBar?.call(context, controller);
-            final tools = widget.showInkTools
-                ? ToolRow(controller: controller)
-                : null;
-            if (nav == null && tools == null) return const SizedBox.shrink();
-            return EditorTopBar(
-              nav: nav ?? const SizedBox.shrink(),
-              tools: tools,
-            );
+            if (nav == null) return const SizedBox.shrink();
+            return EditorTopBar(nav: nav);
           }),
           // ClipRect: Blatt und Striche dürfen nie über die Leiste malen.
           Expanded(
+            child: Row(children: [
+              if (widget.leftPanel != null && !widget.presenting)
+                widget.leftPanel!,
+              Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
             child: ClipRect(
               child: AnimatedBuilder(
                 animation: _enter,
@@ -323,6 +429,19 @@ class InkSurfaceState extends State<InkSurface>
                 child: _surface(),
               ),
             ),
+                ),
+                // Schwebende Unterleiste wie bei Goodnotes.
+                if (widget.showInkTools && !widget.presenting)
+                  Positioned(
+                    top: 10,
+                    left: 0,
+                    right: 0,
+                    child: Center(child: ToolRow(controller: controller)),
+                  ),
+              ],
+            ),
+              ),
+            ]),
           ),
         ],
       ),
@@ -343,12 +462,19 @@ class InkSurfaceState extends State<InkSurface>
       return Stack(
         children: [
           Positioned.fill(
+            child: RepaintBoundary(
+              key: _contentKey,
+              child: Stack(children: [
+          Positioned.fill(
             child: InkCanvasView(
               controller: controller,
               background: widget.backgroundBuilder?.call(controller.camera),
               onBackgroundTap: widget.onBackgroundTap,
               onSwipe: widget.onSwipe == null ? null : _handleSwipe,
               onTextTap: (world) => _textKey.currentState?.createAt(world),
+              onSelectionToCard: selectionToCard,
+              onLinkTap: _openLink,
+              onSelectionToLink: services == null ? null : linkSelection,
             ),
           ),
           if (services != null)
@@ -358,14 +484,18 @@ class InkSurfaceState extends State<InkSurface>
                 ownerId: widget.inkId,
                 controller: controller,
                 repo: services.texts,
+                lineGrid: widget.textGrid,
               ),
             ),
           if (widget.overlayBuilder != null)
             Positioned.fill(child: widget.overlayBuilder!(context, controller)),
+              ]),
+            ),
+          ),
           if (!session.loaded) const Center(child: CircularProgressIndicator()),
           // Zoom-Anzeige oben in der Mitte.
           Positioned(
-            top: 12,
+            top: widget.showInkTools ? 76 : 12,
             left: 0,
             right: 0,
             child: Center(child: ZoomBadge(camera: controller.camera)),

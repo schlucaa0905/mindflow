@@ -10,6 +10,7 @@ import '../../ui/futuristic.dart';
 import '../../ui/widgets.dart';
 import '../common/object_picker.dart';
 import 'card_editor.dart';
+import 'quiz_screen.dart';
 import 'review_screen.dart';
 
 /// STUDY – Lernbereich mit Karteikarten und Wiederholungsplan.
@@ -46,6 +47,12 @@ class StudyScreen extends StatelessWidget {
               title: 'Lernen',
               subtitle: 'Karteikarten mit klugem Wiederholungsplan',
               actions: [
+                OutlinedButton.icon(
+                  onPressed: () => startQuiz(context),
+                  icon: const Icon(Icons.quiz_outlined, size: 18),
+                  label: const Text('Quiz'),
+                ),
+                const SizedBox(width: 8),
                 OutlinedButton.icon(
                   onPressed: () => _newCard(context),
                   icon: const Icon(Icons.add_rounded, size: 18),

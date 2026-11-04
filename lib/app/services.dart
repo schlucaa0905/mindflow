@@ -39,6 +39,12 @@ class AppServices {
   late final StudyRepository study;
   final ValueNotifier<ThemeMode> themeMode = ValueNotifier(ThemeMode.system);
 
+  /// Offene Tabs im Editor (IDs von Notizbüchern, PDFs, Canvas).
+  final ValueNotifier<List<String>> tabs = ValueNotifier(const []);
+
+  /// Zuletzt angesehene Seite je Notizbuch (für Tab-Wechsel).
+  final Map<String, String> lastPage = {};
+
   /// Werkzeug-Einstellungen, app-weit geteilt und dauerhaft gespeichert.
   late final ToolSettings tools;
   Timer? _toolSaveTimer;

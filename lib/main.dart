@@ -4,12 +4,19 @@ import 'app/services.dart';
 import 'app/shell.dart';
 import 'app/theme.dart';
 import 'data/database.dart';
+import 'storage/backup.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
+    await Backup.applyPending();
     final db = await AppDatabase.open();
-    runApp(MindFlowApp(services: AppServices(db)));
+    final services = AppServices(db);
+    runApp(MindFlowApp(services: services));
+    // Automatische Sicherung – etwas später, damit der Start flott bleibt.
+    Future.delayed(const Duration(seconds: 20),
+            () => Backup.runAuto(db.raw, services.objects))
+        .ignore();
   } catch (e) {
     runApp(_StartupError(error: e));
   }

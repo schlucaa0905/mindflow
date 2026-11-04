@@ -252,9 +252,31 @@ class _NavItemState extends State<_NavItem> {
                           fontWeight: sel ? FontWeight.w600 : FontWeight.w500,
                           color: sel ? mf.text : mf.textMuted)),
                 ),
-                if (widget.section.comingInPhase != null)
-                  Text('bald',
-                      style: TextStyle(fontSize: 11, color: mf.textMuted)),
+                if (widget.section == Section.study)
+                  ListenableBuilder(
+                    listenable: Services.of(context).objects,
+                    builder: (context, _) {
+                      final due = Services.of(context)
+                          .study
+                          .stats(DateTime.now())
+                          .due;
+                      if (due == 0) return const SizedBox.shrink();
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: mf.accent,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text('$due',
+                            style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white)),
+                      );
+                    },
+                  ),
                 if (sel)
                   Container(
                     width: 6,

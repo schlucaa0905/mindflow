@@ -258,7 +258,21 @@ class PaperStyle {
     required this.line,
     required this.ink,
     required this.highlighter,
+    this.gap = 1.0,
   });
+
+  /// Abstand der Linien/Kästchen (1 = normal, kleiner = enger).
+  final double gap;
+
+  /// Gleiches Papier mit eigener Blattfarbe, Linienfarbe oder Abstand.
+  PaperStyle copyWith({Color? sheet, Color? line, double? gap}) => PaperStyle(
+        desk: desk,
+        sheet: sheet ?? this.sheet,
+        line: line ?? this.line,
+        ink: ink,
+        highlighter: highlighter,
+        gap: gap ?? this.gap,
+      );
 
   /// Hintergrund um das Blatt herum.
   final Color desk;

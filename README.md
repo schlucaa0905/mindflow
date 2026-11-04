@@ -2,7 +2,7 @@
 
 *Your thoughts. Connected.*
 
-Version 0.8 – Canvas-Karten, Textfelder und Kopfleiste stark ausgebaut.
+Version 0.9 – Bilder, Ordner, Tabs, Sicherung, Quiz und Wissensnetz.
 
 ## Was drin ist
 
@@ -22,6 +22,95 @@ Version 0.8 – Canvas-Karten, Textfelder und Kopfleiste stark ausgebaut.
 - **Lernen:** Karteikarten mit Wiederholungsplan (wie Anki), Lernsets pro Wissenseintrag, Fortschritt auf Home.
 
 **Handschrift** (wie in Phase 0 getestet): Druck, Glättung, Textmarker, Radierer, Rückgängig, Handballen-Schutz, „Nur Stift“ schaltet sich automatisch ein, sobald ein Stift erkannt wird.
+
+## Neu in 0.9.6 – Links, Elemente, Mindmap, Bereiche, geteilte Ansicht
+
+- **Elemente-Bibliothek**: Lasso-Auswahl → „Als Element“ speichert Striche, Text und Bilder; einfügen über „Elemente“ in der Lasso-Leiste oder „+“ → „Element einfügen“ (Notizbuch, PDF, Canvas).
+- **Links**: Lasso-Auswahl → „Verlinken“ mit einer Seite dieses Notizbuchs oder einem Notizbuch, PDF, Canvas oder Wissenseintrag. Antippen (Finger, kurz mit dem Stift oder im Lesemodus) öffnet das Ziel. Links lassen sich mit dem Lasso verschieben und löschen.
+- **Seiten benennen und Inhaltsverzeichnis** („…“ → Inhaltsverzeichnis; benannte Seiten und Lesezeichen).
+- **Eigene Vorlagen**: Seite → „Als Vorlage speichern“; auswählbar unter „Seite gestalten“ (lange drücken entfernt sie).
+- **Druckempfindlichkeit** einstellbar (Stift nochmal antippen).
+- **Mindmap auf dem Canvas**: Unterthema (Tab), Nachbarthema (Umschalt + Enter) – auch als Knöpfe an der Karte – und „Als Mindmap anordnen“.
+- **Bereiche**: benannte Ausschnitte im Navigator (Kompass), hinspringen, umbenennen, anpassen – und „Bereiche präsentieren“ mit Vor/Zurück.
+- **Canvas teilen**: aktuelle Ansicht, ganzer Canvas oder ein Bereich als Bild (PNG) oder PDF.
+- **Zwei Inhalte nebeneinander** („…“ → „Daneben öffnen“): Trennlinie verschiebbar, Griff in der Mitte zum Tauschen oder Schließen.
+- **Automatische Sicherung** (Archiv): täglich, wöchentlich (Standard) oder monatlich als ZIP in der Dateien-App unter „Auf meinem iPad › MindFlow › Sicherungen“; die letzten 3 bleiben.
+- **Globale Suche findet auch Text in PDFs** (beim ersten Mal werden die PDFs einmal eingelesen).
+
+## Neu in 0.9.5 – PDFs wie in Chrome, Seiten frei gestalten
+
+- PDFs werden jetzt mit PDFium dargestellt (dem PDF-Programmteil von Chrome): Formularfelder, ausgefüllte Werte und Anmerkungen sind sichtbar – bearbeitbare PDFs bleiben nicht mehr leer.
+- Suche im PDF findet auch den gedruckten Text (bei gescannten PDFs ohne Text nur deine Textfelder).
+- Links im PDF: mit dem Finger antippen öffnet die Webseite bzw. springt zur Zielseite.
+- „Seite gestalten …“ (im „…“-Menü, im „+“-Menü und im Seitenmenü): Vorlage mit Vorschaubildern, Abstand der Linien/Kästchen (eng, normal, weit – getippter Text dockt passend an), Blattfarbe aus 22 Farben oder jede eigene Farbe (z. B. für Plakate) – für diese Seite oder alle Seiten, auf Wunsch auch für neue Seiten. Wird das Blatt dunkel bzw. hell, werden die Schriftfarben auf Wunsch angepasst.
+- „Notizbuch bearbeiten“: Bei neuer Vorlage wird gefragt, ob sie auch für die vorhandenen Seiten gelten soll.
+- Hinweis: Formularfelder direkt im PDF ausfüllen ist mit der verwendeten PDF-Technik nicht möglich – zum Ausfüllen Textfelder (T) auf die Felder setzen; sie kommen mit in den PDF-Export.
+
+## Neu in 0.9.4 – Canvas-Schreibfehler behoben
+
+- Canvas: Weit herausgezoomt waren neue Striche winzig dünn (praktisch unsichtbar) – es sah aus, als ginge Schreiben nicht mehr. Auf der unendlichen Fläche richtet sich die Strichstärke jetzt nach dem Bildschirm (wie in Goodnotes-Whiteboards); in Notizbüchern und PDFs bleibt sie fest wie auf Papier.
+- Schreibfläche robuster: Ging beim Zoomen das Abheben eines Fingers oder des Stifts verloren, konnte das Schreiben blockieren – das wird jetzt beim nächsten Aufsetzen des Stifts automatisch bereinigt.
+
+## Neu in 0.9.3 – Linien, Favoriten, Pipette & mehr
+
+- Gerade Linien rasten beim Ziehen, Zeichnen und Textmarker-Halten bei 0°, 90°, 180°, 270° (und 45°-Schritten) ein – nur ganz nah dran (±2°), 40° bleibt also 40°. Winkel und Länge werden angezeigt; angetippte Linie: ±1°-Knöpfe (halten = weiterdrehen), Gradzahl antippen zum Eintippen (z. B. 44 oder 89,5), Einrasten umschalten (aus / 90° / 45°+90°).
+- Radierer: „Danach Stift“ (Standard an) – Stift hochnehmen, und es geht mit dem vorigen Stift weiter. Dazu „Nur Marker“ direkt in der Leiste.
+- Lieblingsstifte (auch Textmarker) in der Leiste: Stern speichert, antippen wählt, lange drücken entfernt (mit Rückgängig).
+- Zuletzt benutzte Farben neben den festen Farben, getrennt für Stift und Textmarker.
+- Pipette: Farbe von Schrift, Formfüllung, Text, Bildern, PDF-Seiten oder Papier aufnehmen – mit Lupe; auch zum Umfärben einer Lasso-Auswahl.
+- Lasso drehen: Griff unter der Auswahl, rastet ebenfalls ein, Winkel wird angezeigt (Textfelder und Bilder wandern mit, bleiben aber aufrecht).
+- Seitenzahlen pro Notizbuch („…“ → Seitenzahlen): aus, „3“ oder „3 / 12“ – auch in Vorschau und PDF-Export.
+- Glättung der Handschrift (Stift nochmal antippen): von „genau wie geschrieben“ bis „sehr ruhig“.
+- Behoben: Fehler in der Seiten-Vorschau, der das Bauen verhindert hätte.
+
+## Neu in 0.9.2 – Orientierung & Goodnotes-Bearbeitung
+
+- Canvas: feste, einklappbare Übersichtskarte (antippen = hinfliegen), weiche Kamerafahrten, Navigator (Kompass-Knopf) mit gespeicherten Ansichten und durchsuchbarer Kartenliste, „Zu deinen Inhalten“ auch ganz weit draußen.
+- Notizbuch & PDF: Seitenleiste mit Vorschauen (im Notizbuch per Ziehen sortierbar, mit Seitenmenü), Lesemodus (Auge), nach der letzten Seite weiterwischen legt eine neue an.
+- Lineal in der Stift-Leiste: mit Fingern verschieben und drehen, Stift und Textmarker ziehen an der Kante gerade Linien.
+
+## Neu in 0.9.1 – neue Startseite & Feinschliff
+
+- Startseite neu: ruhiger Kopf mit Suche, großes „Weitermachen“, vier Schnell-Knöpfe, Regale für Angeheftetes und Zuletzt geöffnetes, kompakter Lernstand.
+- Seitenleiste zeigt bei „Lernen“ die Zahl fälliger Karten.
+- Notizbücher duplizieren (mit Seiten, Handschrift, Textfeldern, Bildern).
+- Übersichten nach Datum oder Name sortieren.
+
+## Neu in 0.9 – großes Funktions-Update
+
+- **Bilder** aus Fotos oder Dateien in Notizbuch, PDF und Canvas einfügen. Sie liegen unter der Handschrift (man kann darauf schreiben) und kommen mit in Vorschau und PDF-Export.
+- **Lasso erfasst Textfelder und Bilder**: verschieben, vergrößern, umfärben, duplizieren, kopieren/einfügen (auch auf andere Seiten), löschen – alles mit Rückgängig.
+- **Lasso → Karteikarte**: die Auswahl wird als Bild zur Vorderseite einer Karte.
+- **Füllfarbe für Formen** (Knopf in der Formen-Leiste; gilt für neue und die angetippte Form).
+- **Ordner** (auch verschachtelt) für Notizbücher, Canvas und Dokumente; „In Ordner verschieben“ im Menü jeder Karte.
+- **Tabs** wie bei Goodnotes: offene Dokumente oben, Startseite-Knopf, Tabs schließen.
+- **Datensicherung** im Archiv: alles als eine ZIP-Datei sichern und wiederherstellen.
+- **Vorlagen**: Notenlinien, Wochenplan, Koordinaten – und jede PDF-Seite als eigene Vorlage.
+- **Suche im Dokument** (Lupe): Textfelder in Notizbuch und PDF, Karten und Textfelder auf dem Canvas.
+- **Quiz** (Multiple Choice) aus Karteikarten – im Lernbereich oder pro Wissenseintrag.
+- **Wissensnetz**: alle Wissenseinträge als Netz mit ihren Verbindungen (Knopf „Netz“ im Wissen).
+
+## Neu in 0.8.5 – Text auf Linien und Kästchen
+
+- Textfelder im Notizbuch sind frei platzierbar und docken wie ein Magnet an, sobald sie nah genug (ca. ein Drittel Kästchen) an einer Linie bzw. Kästchenkante sind – auch live beim Ziehen. Angedockt sitzt jede Schriftzeile genau auf einer Linie (liniert, Cornell, Aufgaben) bzw. in den Kästchen (kariert, Punktraster).
+- Große Schrift belegt mehrere Linien/Kästchen. Gilt auch nach Verschieben, Größe oder Schriftart ändern, und im PDF-Export.
+
+## Neu in 0.8.3 – Formen wie Goodnotes
+
+- Formen-Werkzeug: frei Hand zeichnen, beim Abheben wird es zur perfekten Form (Linie, Kreis, Ellipse, Rechteck, Dreieck, Vieleck).
+- Form oder Linie mit jedem Werkzeug antippen (Stift, Textmarker, Finger): Rahmen mit Griffen; daneben tippen kehrt zum vorherigen Werkzeug zurück. Handschrift bleibt davon unberührt.
+- Griffe: Ecken/Kanten ziehen ändert die Größe, Linienenden einzeln versetzen, hineintippen und ziehen verschiebt. Entf löscht. Alles mit Rückgängig.
+
+## Neu in 0.8.2 – Leisten wie Goodnotes 6
+
+- Blaue Kopfleiste: links Zurück, Seitenübersicht, Lesezeichen; Mitte Lasso | Schreiben, Radierer, Text, Laser; rechts Seite, Zoom, Nur-Stift, Seite hinzufügen, Teilen, Präsentieren, Mehr.
+- Schwebende Unterleiste über dem Blatt: Rückgängig/Wiederholen | Füller, Kugelschreiber, Pinsel, Textmarker, Formen | 3 Stärken | 3 Farben | +.
+
+## Neu in 0.8.1 – Goodnotes-Leiste & feste Strichstärken
+
+- Kopf- und Werkzeugleiste flach über die ganze Breite wie bei Goodnotes; Werkzeuge in Goodnotes-Reihenfolge (Stift, Radierer, Textmarker, Formen, Lasso, Text, Laser), daneben 3 Farben und 3 Stärken.
+- Textfelder: ohne Rahmen, beim Bearbeiten dünner Rahmen mit Griff; dunkles Kontextmenü.
+- Strichstärke gilt auf dem Blatt: Ein Strich ist gleich dick, egal bei welchem Zoom er geschrieben wurde.
 
 ## Neu in 0.8 – Canvas, Text und Kopfleiste ausgebaut
 
