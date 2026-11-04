@@ -23,6 +23,10 @@ Version 0.9 – Bilder, Ordner, Tabs, Sicherung, Quiz und Wissensnetz.
 
 **Handschrift** (wie in Phase 0 getestet): Druck, Glättung, Textmarker, Radierer, Rückgängig, Handballen-Schutz, „Nur Stift“ schaltet sich automatisch ein, sobald ein Stift erkannt wird.
 
+## Neu in 0.9.7 – Bau-Fehler behoben
+
+- Passend zur aktuellen Flutter-Version (3.47): neue PDF-Technik (pdfrx 2), ein selbst gezeichnetes Radierer-Symbol (das alte gibt es in Flutter nicht mehr) und eine Korrektur bei den Linienabständen.
+
 ## Neu in 0.9.6 – Links, Elemente, Mindmap, Bereiche, geteilte Ansicht
 
 - **Elemente-Bibliothek**: Lasso-Auswahl → „Als Element“ speichert Striche, Text und Bilder; einfügen über „Elemente“ in der Lasso-Leiste oder „+“ → „Element einfügen“ (Notizbuch, PDF, Canvas).

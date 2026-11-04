@@ -197,7 +197,7 @@ class PdfService {
     final out = <String>[];
     for (final p in d.pages) {
       try {
-        out.add((await p.loadText()).fullText);
+        out.add((await p.loadText())?.fullText ?? '');
       } catch (_) {
         out.add('');
       }

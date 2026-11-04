@@ -288,7 +288,7 @@ TextLineGrid? textGridFor(PageTemplate t, [double k = 1]) => switch (t) {
     };
 
 /// Abstände für Linien und Kästchen.
-const kPageGaps = <double, String>{0.75: 'Eng', 1.0: 'Normal', 1.35: 'Weit'};
+const kPageGaps = [(0.75, 'Eng'), (1.0, 'Normal'), (1.35, 'Weit')];
 
 /// Ist die Blattfarbe dunkel (dann helle Schrift)?
 bool isDarkSheet(Color c) => c.computeLuminance() < 0.3;

@@ -807,7 +807,7 @@ class ToolModeButtons extends StatelessWidget {
     return ListenableBuilder(
       listenable: c,
       builder: (context, _) {
-        Widget b(IconData icon, String tip, bool on, VoidCallback tap) =>
+        Widget b(IconData? icon, String tip, bool on, VoidCallback tap) =>
             Tooltip(
               message: tip,
               child: GestureDetector(
@@ -822,9 +822,13 @@ class ToolModeButtons extends StatelessWidget {
                     color: on ? const Color(0xFFD5DCE8) : null,
                     borderRadius: BorderRadius.circular(11),
                   ),
-                  child: Icon(icon,
-                      size: 23,
-                      color: on ? const Color(0xFF1E2A44) : Colors.white),
+                  child: icon == null
+                      ? CustomPaint(
+                          painter: _EraserIcon(
+                              on ? const Color(0xFF1E2A44) : Colors.white))
+                      : Icon(icon,
+                          size: 23,
+                          color: on ? const Color(0xFF1E2A44) : Colors.white),
                 ),
               ),
             );
@@ -841,7 +845,7 @@ class ToolModeButtons extends StatelessWidget {
                 color: Colors.white24),
             b(Icons.edit_outlined, 'Schreiben (P)',
                 InkController.isWriteTool(t), () => c.setTool(c.lastWriteTool)),
-            b(Icons.ink_eraser_outlined, 'Radierer (E)', t == ToolMode.eraser,
+            b(null, 'Radierer (E)', t == ToolMode.eraser,
                 () => c.setTool(ToolMode.eraser)),
             b(Icons.title_rounded, 'Textfeld (T)', t == ToolMode.text,
                 () => c.setTool(ToolMode.text)),
@@ -1005,4 +1009,34 @@ class _Favorites extends StatelessWidget {
       ),
     ]);
   }
+}
+
+/// Radierer-Symbol (schräger Radiergummi), selbst gezeichnet.
+class _EraserIcon extends CustomPainter {
+  const _EraserIcon(this.color);
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeJoin = StrokeJoin.round;
+    canvas.save();
+    canvas.translate(size.width / 2, size.height / 2);
+    canvas.rotate(-math.pi / 4);
+    final body = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset.zero, width: 20, height: 10),
+        const Radius.circular(2.5));
+    canvas.drawRRect(body, p);
+    canvas.drawRect(const Rect.fromLTRB(-10, -5, -3, 5),
+        Paint()..color = color.withValues(alpha: 0.85));
+    canvas.restore();
+    canvas.drawLine(Offset(size.width * 0.3, size.height * 0.86),
+        Offset(size.width * 0.86, size.height * 0.86), p..strokeWidth = 1.4);
+  }
+
+  @override
+  bool shouldRepaint(_EraserIcon old) => old.color != color;
 }

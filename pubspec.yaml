@@ -1,7 +1,7 @@
 name: mindflow
 description: "MindFlow – Your thoughts. Connected."
 publish_to: none
-version: 0.9.6+21
+version: 0.9.7+22
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -17,9 +17,9 @@ dependencies:
   sqlite3_flutter_libs: ^0.5.24
   # PDFs anzeigen mit PDFium (wie Chrome): Seiten samt Formularfeldern und
   # Anmerkungen, Text zum Durchsuchen, Links.
-  pdfrx: ^1.3.5
+  pdfrx: ^2.11.0
   # Links aus PDFs öffnen.
-  url_launcher: ^6.3.1
+  url_launcher: ^6.3.2
   # PDFs erzeugen und teilen (Export).
   printing: ^5.13.0
   pdf: ^3.11.0

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pdfrx/pdfrx.dart' show pdfrxFlutterInitialize;
 
 import 'app/services.dart';
 import 'app/shell.dart';
@@ -9,6 +10,11 @@ import 'storage/backup.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
+    // PDF-Darstellung (PDFium) vorbereiten – ohne sie startet die App
+    // trotzdem, nur PDFs blieben dann leer.
+    try {
+      await pdfrxFlutterInitialize();
+    } catch (_) {}
     await Backup.applyPending();
     final db = await AppDatabase.open();
     final services = AppServices(db);

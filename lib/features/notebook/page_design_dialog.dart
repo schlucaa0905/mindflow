@@ -69,7 +69,7 @@ Future<PageDesign?> showPageDesign(
   final current = page.data['bgImage'] as String?;
   var bg = current;
   final g = page.data['gap'];
-  var gap = kPageGaps.keys.reduce((a, b) =>
+  var gap = [for (final e in kPageGaps) e.$1].reduce((a, b) =>
       ((g is num ? g.toDouble() : 1.0) - a).abs() <=
               ((g is num ? g.toDouble() : 1.0) - b).abs()
           ? a
@@ -252,8 +252,8 @@ Future<PageDesign?> showPageDesign(
                 SegmentedButton<double>(
                   showSelectedIcon: false,
                   segments: [
-                    for (final e in kPageGaps.entries)
-                      ButtonSegment(value: e.key, label: Text(e.value)),
+                    for (final e in kPageGaps)
+                      ButtonSegment(value: e.$1, label: Text(e.$2)),
                   ],
                   selected: {gap},
                   onSelectionChanged: (s) => setState(() => gap = s.first),
