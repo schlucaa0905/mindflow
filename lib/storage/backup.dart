@@ -48,7 +48,7 @@ class Backup {
       }
       File(path)
         ..createSync(recursive: true)
-        ..writeAsBytesSync(ZipEncoder().encode(archive)!, flush: true);
+        ..writeAsBytesSync(ZipEncoder().encode(archive), flush: true);
     });
     return File(path);
   }
@@ -123,7 +123,7 @@ class Backup {
       if (!e.isFile || e.name.contains('..')) continue;
       final out = File('${staging.path}$_sep${e.name.replaceAll('/', _sep)}');
       await out.create(recursive: true);
-      await out.writeAsBytes(e.content as List<int>, flush: true);
+      await out.writeAsBytes(e.content, flush: true);
     }
     return true;
   }
